@@ -1,0 +1,10 @@
+[package]
+name = "imara-histogram-diff"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Histogram line diff algorithm extracted for fastermod"
+
+[dependencies]
+hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
+memchr = "2"

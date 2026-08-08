@@ -1,0 +1,36 @@
+[workspace]
+members = [".", "imara-histogram-diff"]
+resolver = "3"
+
+[package]
+name = "fastermod"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
+grep = "0.3"
+ignore = "0.4.1"
+imara-histogram-diff = { path = "imara-histogram-diff" }
+lexopt = "0.3.2"
+regex-lite = "0.1.9"
+
+[dev-dependencies]
+rustybench = "0.1"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", default-features = false, features = ["std", "termios"] }
+
+[profile.dev]
+debug = 0
+strip = "debuginfo"
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+strip = true
