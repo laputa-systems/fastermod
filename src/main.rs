@@ -1265,26 +1265,27 @@ mod tests {
                 return PathBuf::from(binary);
             }
 
-            let mut binary = env::current_exe()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .join(env!("CARGO_PKG_NAME"));
-            if cfg!(windows) {
-                binary.set_extension("exe");
+            // The test executable sits under deps/ or, with a separate build
+            // directory, under build/<package>/<hash>/out/, so search upward for
+            // the profile directory that holds the binary.
+            let name = if cfg!(windows) {
+                concat!(env!("CARGO_PKG_NAME"), ".exe")
+            } else {
+                env!("CARGO_PKG_NAME")
+            };
+            let exe = env::current_exe().unwrap();
+            let find = || exe.ancestors().skip(1).map(|dir| dir.join(name)).find(|path| path.is_file());
+            if let Some(binary) = find() {
+                return binary;
             }
 
-            if !binary.is_file() {
-                let status = Command::new("cargo")
-                    .args(["build", "--quiet", "--bin", env!("CARGO_PKG_NAME")])
-                    .current_dir(env!("CARGO_MANIFEST_DIR"))
-                    .status()
-                    .unwrap();
-                assert!(status.success(), "unable to build test binary");
-            }
-            binary
+            let status = Command::new("cargo")
+                .args(["build", "--quiet", "--bin", env!("CARGO_PKG_NAME")])
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .status()
+                .unwrap();
+            assert!(status.success(), "unable to build test binary");
+            find().expect("built test binary not found next to the test executable")
         })
     }
 
