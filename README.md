@@ -20,7 +20,7 @@ to render changes.
 ```sh
 make build                  # debug build
 make test                   # cargo test
-make lint                   # cargo fmt + clippy --fix
+make lint                   # clippy --fix
 make bench                  # rustybench baseline comparison (needs ../rustybench)
 make release                # static release build (build-std, immediate-abort panics)
 make install                # release build copied to ~/usr/bin
