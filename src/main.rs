@@ -1279,8 +1279,14 @@ mod tests {
                 return binary;
             }
 
-            let status = Command::new("cargo")
-                .args(["build", "--quiet", "--bin", env!("CARGO_PKG_NAME")])
+            // Build in the test executable's own profile so the binary lands in
+            // the profile directory that the search above covers.
+            let mut build = Command::new("cargo");
+            build.args(["build", "--quiet", "--bin", env!("CARGO_PKG_NAME")]);
+            if !cfg!(debug_assertions) {
+                build.arg("--release");
+            }
+            let status = build
                 .current_dir(env!("CARGO_MANIFEST_DIR"))
                 .status()
                 .unwrap();
