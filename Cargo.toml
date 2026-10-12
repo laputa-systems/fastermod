@@ -6,6 +6,8 @@ resolver = "3"
 name = "fastermod"
 version = "0.0.1"
 edition = "2024"
+description = "A fast partial replacement for codemod"
+license = "MIT"
 
 [dependencies]
 grep = "0.3"
