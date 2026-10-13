@@ -1,32 +1,41 @@
 # fastermod
 
-A fast partial replacement for [codemod](https://github.com/facebookarchive/codemod):
-a tool for large-scale codebase refactors that can be partially automated but
-still need human review. It is derived from Meta's fastmod.
+`fastermod` applies regular-expression substitutions across files and shows each
+proposed change for review. It is a partial replacement for
+[codemod](https://github.com/facebookarchive/codemod).
+
+## Install
+
+Install from the repository with Cargo:
 
 ```sh
-fastermod [OPTIONS] <REGEX> <SUBST> [FILE_OR_DIR]...
+cargo install --git https://github.com/laputa-systems/fastermod fastermod
 ```
 
-Each match is shown as a diff for you to accept or reject unless `--accept-all`
-is given. Run `fastermod --help` for the options (multiline, case-insensitive,
-extension and glob filters, fixed strings, hidden and ignored files, and so on).
+When the manual release workflow runs, pre-release binaries are listed on the
+[GitHub Releases page](https://github.com/laputa-systems/fastermod/releases).
 
-The workspace also contains `imara-histogram-diff`, the histogram line diff used
-to render changes.
-
-## Development
+## Use
 
 ```sh
-make build                  # debug build
-make test                   # cargo test
-make lint                   # clippy --fix
-make bench                  # rustybench baseline comparison (needs ../rustybench)
-make release                # static release build (build-std, immediate-abort panics)
-make install                # release build copied to ~/usr/bin
+fastermod 'OldName' 'NewName' src/
 ```
 
-`make release-dynamic`, `make verify-release`, and `make verify-release-dynamic`
-are used by the Linux release image (`Dockerfile`) and the release workflow.
-`TARGET` selects the target triple; it defaults to the host, with Linux hosts
-mapped to musl.
+The first argument is a regular expression; the second is its replacement.
+Without a path, `fastermod` searches the current directory. By default it skips
+hidden and ignored files. Accepted replacements are written to the matched file.
+
+For each match, fastermod displays a diff and asks what to do. Press Enter or
+`y` to apply the change, `n` to skip it, `e` to edit the file, `A` to accept all
+remaining matches, `E` to accept and edit, or `q` to quit. Editing uses
+`$EDITOR`, defaulting to `vim`.
+
+For unattended changes, add `--accept-all`. `--print-changed-files` prints
+changed paths; it is useful with `--accept-all` in scripts. Use `-F` or
+`--fixed-strings` when the search text should be treated literally, and
+`--help` for case, multiline, extension, glob, hidden-file, and ignore options.
+
+## Help and license
+
+Report problems on the [issue tracker](https://github.com/laputa-systems/fastermod/issues).
+See [LICENSE](LICENSE) for the repository's license information.
