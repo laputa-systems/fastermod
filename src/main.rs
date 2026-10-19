@@ -95,6 +95,7 @@ struct Args {
     dir: Vec<String>,
     file_or_dir: Vec<String>,
     ignore_case: bool,
+    smart_case: bool,
     extensions: Option<Vec<String>>,
     glob: Option<Vec<String>>,
     hidden: bool,
@@ -105,6 +106,74 @@ struct Args {
     fixed_strings: bool,
     match_regex: String,
     subst: String,
+}
+
+#[derive(Clone)]
+struct Substitution {
+    template: String,
+    smart_case: bool,
+}
+
+impl Substitution {
+    fn new(template: String, smart_case: bool) -> Self {
+        Self {
+            template,
+            smart_case,
+        }
+    }
+
+    fn replacement(&self, captures: &regex_lite::Captures<'_>) -> String {
+        let mut replacement = String::new();
+        captures.expand(&self.template, &mut replacement);
+        if self.smart_case {
+            adapt_case(captures.get(0).unwrap().as_str(), &replacement)
+        } else {
+            replacement
+        }
+    }
+
+    fn replace_all<'a>(&self, regex: &Regex, contents: &'a str) -> Cow<'a, str> {
+        if self.smart_case {
+            regex.replace_all(contents, |captures: &regex_lite::Captures<'_>| {
+                self.replacement(captures)
+            })
+        } else {
+            regex.replace_all(contents, self.template.as_str())
+        }
+    }
+}
+
+fn adapt_case(matched: &str, replacement: &str) -> String {
+    let mut letters = matched
+        .chars()
+        .filter(|ch| ch.is_lowercase() || ch.is_uppercase());
+    let Some(first_letter) = letters.next() else {
+        return replacement.to_owned();
+    };
+    if first_letter.is_uppercase() && letters.clone().all(char::is_uppercase) {
+        return replacement.chars().flat_map(char::to_uppercase).collect();
+    }
+    if first_letter.is_lowercase() && letters.clone().all(char::is_lowercase) {
+        return replacement.to_lowercase();
+    }
+    if first_letter.is_uppercase() && letters.all(char::is_lowercase) {
+        let mut first_letter = true;
+        let mut title_case = String::new();
+        for ch in replacement.chars() {
+            if ch.is_uppercase() || ch.is_lowercase() {
+                if first_letter {
+                    title_case.extend(ch.to_uppercase());
+                    first_letter = false;
+                } else {
+                    title_case.extend(ch.to_lowercase());
+                }
+            } else {
+                title_case.push(ch);
+            }
+        }
+        return title_case;
+    }
+    replacement.to_owned()
 }
 
 fn help_text() -> &'static str {
@@ -125,6 +194,7 @@ Options:
   -m, --multiline            Have regex work over multiple lines (i.e., have dot match newlines)
   -d, --dir <DIR>            The path whose descendent files are to be explored
   -i, --ignore-case          Perform case-insensitive search
+  -S, --smartcase            Match without regard to case when REGEX has no uppercase letters. Adapt SUBST casing.
   -e, --extensions <EXT>     A comma-delimited list of file extensions to process
   -g, --glob <GLOB>          A space-delimited list of globs to process
       --hidden              Search hidden files
@@ -156,6 +226,7 @@ fn parse_args_inner() -> Result<Args> {
     let mut multiline = false;
     let mut dir = Vec::new();
     let mut ignore_case = false;
+    let mut smart_case = false;
     let mut extensions = None;
     let mut has_glob = false;
     let mut glob = Vec::new();
@@ -179,6 +250,7 @@ fn parse_args_inner() -> Result<Args> {
             Short('m') | Long("multiline") => multiline = true,
             Short('d') | Long("dir") => dir.push(parser.value()?.to_string_lossy().into_owned()),
             Short('i') | Long("ignore-case") => ignore_case = true,
+            Short('S') | Long("smartcase") => smart_case = true,
             Short('e') | Long("extensions") => {
                 let value = parser.value()?.to_string_lossy().into_owned();
                 let mut exts: Vec<String> = value.split(',').map(str::to_string).collect();
@@ -228,6 +300,7 @@ fn parse_args_inner() -> Result<Args> {
         dir,
         file_or_dir,
         ignore_case,
+        smart_case,
         extensions,
         glob,
         hidden,
@@ -636,11 +709,11 @@ impl Fastermod {
     fn fast_patch(
         &mut self,
         regex: &Regex,
-        subst: &str,
+        substitution: &Substitution,
         path: &Path,
         contents: &str,
     ) -> Result<bool> {
-        let new_contents = regex.replace_all(contents, subst);
+        let new_contents = substitution.replace_all(regex, contents);
         match new_contents {
             Cow::Borrowed(_) => Ok(false),
             Cow::Owned(_) => {
@@ -653,37 +726,27 @@ impl Fastermod {
     fn present_and_apply_patches(
         &mut self,
         regex: &Regex,
-        subst: &str,
+        substitution: &Substitution,
         path: &Path,
         mut contents: String,
     ) -> Result<()> {
-        // Overall flow:
-        // 0) offset = 0.
-        // 1) Find next patch from *current* contents of the file at
-        //    given offset. If none, we are done.
-        // 2) Set the offset to the start of the previous patch + 1.
-        // 3) Ask the user to make a modification to the file.
-        // 4) Re-read the file. (User may have made arbitrary edits!)
         let mut offset = 0;
         while offset < contents.len() {
             {
-                let mat = regex.find(&contents[offset..]);
-                match mat {
+                let captures = regex.captures(&contents[offset..]);
+                match captures {
                     None => break,
-                    Some(mat) => {
+                    Some(captures) => {
+                        let mat = captures.get(0).unwrap();
+                        let replacement = substitution.replacement(&captures);
                         let mut new_contents = contents[..offset].to_string();
-                        let new_trailing_contents = regex.replace(&contents[offset..], subst);
-                        new_contents.push_str(&new_trailing_contents);
-                        // Zero-length matches can happen with any
-                        // regex that matches the empty string,
-                        // such as `a?` or the empty regex.
+                        new_contents.push_str(&contents[offset..offset + mat.start()]);
+                        new_contents.push_str(&replacement);
+                        new_contents.push_str(&contents[offset + mat.end()..]);
                         let is_zero_length_match = mat.end() == mat.start();
                         let (start_line, _) = index_to_row_col(&contents, mat.start() + offset);
                         let (end_line, _) = index_to_row_col(
                             &contents,
-                            // Avoid generating index of -1 when start
-                            // == end == offset = 0 for a zero-length
-                            // match.
                             backward_to_char_boundary(
                                 &contents,
                                 mat.end() + offset - if is_zero_length_match { 0 } else { 1 },
@@ -701,13 +764,10 @@ impl Fastermod {
                                 &contents,
                                 offset
                                 + mat.start()
-                                + subst.len()
-                                // Ensure forward progress when there
-                                // is a zero-length match.
+                                + replacement.len()
                                 + if is_zero_length_match { 1 } else { 0 },
                             );
                         } else {
-                            // Advance to the next character after the match.
                             offset = to_char_boundary(&contents, offset + mat.end() + 1);
                         }
                     }
@@ -838,7 +898,7 @@ impl Fastermod {
         &mut self,
         regex: &Regex,
         matcher: &RegexMatcher,
-        subst: &str,
+        substitution: &Substitution,
         dirs: Vec<&str>,
         file_set: Option<FileSet>,
     ) -> Result<()> {
@@ -897,7 +957,7 @@ impl Fastermod {
         let mut visited = HashSet::default();
         while let Ok((path, contents)) = rx.recv() {
             visited.insert(path.clone());
-            self.present_and_apply_patches(regex, subst, &path, contents)?;
+            self.present_and_apply_patches(regex, substitution, &path, contents)?;
             if self.yes_to_all {
                 // Kick over into fast mode. We restart the
                 // search, but we have our visited set so that
@@ -908,7 +968,7 @@ impl Fastermod {
                 return Fastermod::run_fast_impl(
                     regex,
                     matcher,
-                    subst,
+                    substitution,
                     dirs,
                     file_set,
                     self.hidden,
@@ -926,7 +986,7 @@ impl Fastermod {
     fn run_fast(
         regex: &Regex,
         matcher: &RegexMatcher,
-        subst: &str,
+        substitution: &Substitution,
         dirs: Vec<&str>,
         file_set: Option<FileSet>,
         hidden: bool,
@@ -936,7 +996,7 @@ impl Fastermod {
         Fastermod::run_fast_impl(
             regex,
             matcher,
-            subst,
+            substitution,
             dirs,
             file_set,
             hidden,
@@ -954,7 +1014,7 @@ impl Fastermod {
     fn run_fast_impl(
         regex: &Regex,
         matcher: &RegexMatcher,
-        subst: &str,
+        substitution: &Substitution,
         dirs: Vec<&str>,
         file_set: Option<FileSet>,
         hidden: bool,
@@ -973,7 +1033,7 @@ impl Fastermod {
             .build_parallel();
         let matcher = matcher.clone();
         let visited = Arc::new(visited);
-        let subst: Arc<str> = Arc::from(subst);
+        let substitution = Arc::new(substitution.clone());
         let should_record_changed_files = changed_files.is_some();
         let changed_files = Arc::new(Mutex::new(changed_files.unwrap_or_default()));
         let changed_files_inner = changed_files.clone();
@@ -983,7 +1043,7 @@ impl Fastermod {
             let mut fm = Fastermod::new(true, hidden, no_ignore, false);
             let regex = regex.clone();
             let matcher = matcher.clone();
-            let subst = subst.clone();
+            let substitution = substitution.clone();
             let visited = visited.clone();
             let changed_files = changed_files_inner.clone();
             let mut searcher = make_searcher();
@@ -1011,7 +1071,7 @@ impl Fastermod {
                     if let Some(contents) = file_contents_if_matches(&mut searcher, &matcher, path)
                     {
                         let patching_result =
-                            fm.fast_patch(&regex, subst.as_ref(), path, &contents);
+                            fm.fast_patch(&regex, substitution.as_ref(), path, &contents);
                         match patching_result {
                             Ok(changed_file) => {
                                 if should_record_changed_files && changed_file {
@@ -1043,6 +1103,7 @@ fn fastermod() -> Result<()> {
         dir,
         file_or_dir,
         ignore_case,
+        smart_case,
         extensions,
         glob,
         hidden,
@@ -1085,8 +1146,11 @@ fn fastermod() -> Result<()> {
     } else {
         (regex_str.to_string(), subst.to_string())
     };
+    let substitution = Substitution::new(subst, smart_case);
+    let case_insensitive =
+        ignore_case || (smart_case && !regex_str.chars().any(char::is_uppercase));
     let regex = RegexBuilder::new(&maybe_escaped_regex)
-        .case_insensitive(ignore_case)
+        .case_insensitive(case_insensitive)
         .multi_line(true) // match codemod behavior for ^ and $.
         .dot_matches_new_line(multiline)
         .build()
@@ -1099,7 +1163,7 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
         ))?;
     }
     let matcher = RegexMatcherBuilder::new()
-        .case_insensitive(ignore_case)
+        .case_insensitive(case_insensitive)
         .multi_line(true)
         .dot_matches_new_line(multiline)
         .build(&maybe_escaped_regex)?;
@@ -1108,7 +1172,7 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
         Fastermod::run_fast(
             &regex,
             &matcher,
-            &subst,
+            &substitution,
             dirs,
             file_set,
             hidden,
@@ -1117,7 +1181,7 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
         )
     } else {
         Fastermod::new(accept_all, hidden, no_ignore, print_changed_files)
-            .run_interactive(&regex, &matcher, &subst, dirs, file_set)
+            .run_interactive(&regex, &matcher, &substitution, dirs, file_set)
     }
 }
 
@@ -1181,7 +1245,12 @@ pub mod benchmark {
         path: &Path,
         contents: &str,
     ) -> BenchmarkResult<bool> {
-        Fastermod::new(true, false, false, false).fast_patch(regex, substitution, path, contents)
+        Fastermod::new(true, false, false, false).fast_patch(
+            regex,
+            &Substitution::new(substitution.to_owned(), false),
+            path,
+            contents,
+        )
     }
 
     pub fn run_fast(
@@ -1198,7 +1267,7 @@ pub mod benchmark {
         Fastermod::run_fast(
             regex,
             matcher,
-            substitution,
+            &Substitution::new(substitution.to_owned(), false),
             vec![directory],
             file_set,
             false,
@@ -1527,7 +1596,12 @@ mod tests {
         let file_path = dir.path().join("foo.txt");
         let regex = RegexBuilder::new("").multi_line(true).build().unwrap();
         let mut fm = Fastermod::new(true, false, false, false);
-        fm.present_and_apply_patches(&regex, "x", &file_path, "foo".into())
+        fm.present_and_apply_patches(
+            &regex,
+            &Substitution::new("x".to_owned(), false),
+            &file_path,
+            "foo".into(),
+        )
             .unwrap();
         let contents = read_to_string(file_path).unwrap();
         assert_eq!(contents, "xfxoxo");
@@ -1539,7 +1613,12 @@ mod tests {
         let file_path = dir.path().join("foo.txt");
         let regex = RegexBuilder::new("foo").multi_line(true).build().unwrap();
         let mut fm = Fastermod::new(true, false, false, false);
-        fm.present_and_apply_patches(&regex, "", &file_path, "foofoo".into())
+        fm.present_and_apply_patches(
+            &regex,
+            &Substitution::new(String::new(), false),
+            &file_path,
+            "foofoo".into(),
+        )
             .unwrap();
         let contents = read_to_string(file_path).unwrap();
         assert_eq!(contents, "");
@@ -1551,7 +1630,12 @@ mod tests {
         let file_path = dir.path().join("foo.txt");
         let regex = RegexBuilder::new("foo").build().unwrap();
         let mut fm = Fastermod::new(true, false, false, false);
-        fm.present_and_apply_patches(&regex, "foofoo", &file_path, "foo".into())
+        fm.present_and_apply_patches(
+            &regex,
+            &Substitution::new("foofoo".to_owned(), false),
+            &file_path,
+            "foo".into(),
+        )
             .unwrap();
         let contents = read_to_string(file_path).unwrap();
         assert_eq!(contents, "foofoo");
