@@ -321,29 +321,17 @@ fn notify_fast_mode() {
 fn run_editor(path: &Path, start_line: usize) -> Result<()> {
     let editor = env::var("EDITOR").unwrap_or_else(|_| String::from("vim"));
     let args: Vec<&str> = editor.split(' ').collect();
-    let mut editor_cmd = {
-        let mut cmd = Command::new(args[0])
-            .args(&args[1..])
-            .arg(format!("+{}", start_line))
-            .arg(path)
-            .spawn()
-            .map_err(|e| {
-                error_with_context(
-                    format!("Unable to launch editor {} on path {:?}", editor, path),
-                    e,
-                )
-            });
-        if cfg!(target_os = "windows") && cmd.is_err() {
-            // Windows-only fallback to notepad.exe.
-            cmd = Command::new("notepad.exe").arg(path).spawn().map_err(|e| {
-                error_with_context(
-                    format!("Unable to launch editor notepad.exe on path {:?}", path),
-                    e,
-                )
-            });
-        }
-        cmd?
-    };
+    let mut editor_cmd = Command::new(args[0])
+        .args(&args[1..])
+        .arg(format!("+{}", start_line))
+        .arg(path)
+        .spawn()
+        .map_err(|e| {
+            error_with_context(
+                format!("Unable to launch editor {} on path {:?}", editor, path),
+                e,
+            )
+        })?;
     editor_cmd
         .wait()
         .map_err(|e| error_with_context("Error waiting for editor to exit", e))?;
@@ -1337,11 +1325,7 @@ mod tests {
             // The test executable sits under deps/ or, with a separate build
             // directory, under build/<package>/<hash>/out/, so search upward for
             // the profile directory that holds the binary.
-            let name = if cfg!(windows) {
-                concat!(env!("CARGO_PKG_NAME"), ".exe")
-            } else {
-                env!("CARGO_PKG_NAME")
-            };
+            let name = env!("CARGO_PKG_NAME");
             let exe = env::current_exe().unwrap();
             let find = || exe.ancestors().skip(1).map(|dir| dir.join(name)).find(|path| path.is_file());
             if let Some(binary) = find() {

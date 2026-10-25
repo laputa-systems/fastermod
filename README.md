@@ -4,6 +4,8 @@
 proposed change for review. It is a partial replacement for
 [codemod](https://github.com/facebookarchive/codemod).
 
+Supported on macOS and Linux. Windows is not supported.
+
 ## Install
 
 Install from the repository with Cargo:

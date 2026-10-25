@@ -3,7 +3,7 @@
 The manual [`release` workflow](../.github/workflows/release.yml) builds macOS
 ARM64 and Linux x86-64 and ARM64 binaries. Linux builds include both static and
 dynamic musl variants, and the workflow verifies them before publishing zipped
-pre-release artifacts to GitHub Releases.
+pre-release artifacts to GitHub Releases. Windows is not supported.
 
 For local builds, `TARGET` selects the target triple. It defaults to the host;
 the default replaces `-unknown-linux-gnu` with `-unknown-linux-musl`.
