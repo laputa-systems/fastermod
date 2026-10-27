@@ -29,6 +29,8 @@ use std::process::Command;
 use std::process::exit;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -672,10 +674,87 @@ impl Fastermod {
     }
 
     fn save(&mut self, path: &Path, text: &str) -> Result<()> {
-        fs::write(path, text)
-            .map_err(|e| error_with_context(format!("Unable to write to {:?}", path), e))?;
-        self.record_change(path.to_owned());
-        Ok(())
+        if let Ok(metadata) = fs::metadata(path)
+            && metadata.permissions().readonly()
+        {
+            return Err(error_with_context(
+                format!("Unable to write to {:?}", path),
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "permission denied",
+                ),
+            ));
+        }
+        static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| String::from("fastermod"));
+        for _ in 0..100 {
+            let temp = parent.join(format!(
+                ".{}.tmp.{}-{}",
+                file_name,
+                std::process::id(),
+                SAVE_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            let staged = (|| -> Result<Option<()>> {
+                let mut file = match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temp)
+                {
+                    Ok(file) => file,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        return Ok(None);
+                    }
+                    Err(e) => {
+                        return Err(error_with_context(
+                            format!("Unable to write to {:?}", path),
+                            e,
+                        ));
+                    }
+                };
+                if let Ok(metadata) = fs::metadata(path) {
+                    file.set_permissions(metadata.permissions()).map_err(|e| {
+                        error_with_context(format!("Unable to write to {:?}", path), e)
+                    })?;
+                }
+                std::io::Write::write_all(&mut file, text.as_bytes()).map_err(|e| {
+                    error_with_context(format!("Unable to write to {:?}", path), e)
+                })?;
+                file.sync_all().map_err(|e| {
+                    error_with_context(format!("Unable to write to {:?}", path), e)
+                })?;
+                drop(file);
+                fs::rename(&temp, path).map_err(|e| {
+                    error_with_context(format!("Unable to write to {:?}", path), e)
+                })?;
+                #[cfg(unix)]
+                if let Ok(dir) = fs::File::open(parent) {
+                    let _ = dir.sync_all();
+                }
+                Ok(Some(()))
+            })();
+            match staged {
+                Ok(Some(())) => {
+                    self.record_change(path.to_owned());
+                    return Ok(());
+                }
+                Ok(None) => continue,
+                Err(error) => {
+                    let _ = fs::remove_file(&temp);
+                    return Err(error);
+                }
+            }
+        }
+        Err(error_with_context(
+            format!("Unable to write to {:?}", path),
+            "unable to stage a temporary file",
+        ))
     }
 
     fn record_change(&mut self, path: PathBuf) {
