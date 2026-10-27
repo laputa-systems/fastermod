@@ -16,7 +16,7 @@ The command definitions are in the [`Makefile`](../Makefile).
 
 `make lint` uses `cargo clippy --fix --allow-dirty`, so review any source edits
 it makes. `make install` builds a release binary and copies it to
-`~/usr/bin/fastermod`; on macOS it also applies ad hoc code signing.
+`~/.local/bin/fastermod`; on macOS it also applies ad hoc code signing.
 
 `make bench` uses `benches/baseline.json` and expects `../rustybench` by default.
 Set `RUSTYBENCH` to override that command. See [release builds](release.md)
