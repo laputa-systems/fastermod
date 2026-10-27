@@ -1,15 +1,6 @@
 Prefix: FAST
 Next: 9
 
-### FAST-2 · P2 · Failures exit 0
-
-- **Area:** Errors
-- **Where:** `src/main.rs:1147`, `src/main.rs:1041`, `src/main.rs:1117`, `src/main.rs:1012`
-- **Problem:** `main` prints an error with `Debug` and returns, so the process exits 0. Fast mode prints a warning and continues, then returns `Ok`. A pattern that matches the empty string still waits for Enter when `--accept-all` is set, and EOF on that prompt is a failure that also exits 0. Probes: `fastermod '(' x .` printed `Unable to make regex from (` and exited 0. `fastermod --accept-all 'a*' x` on `aaa` with stdin closed left `aaa` and exited 0. `--accept-all foo BAR` on a directory with one mode-0444 file and one writable file updated only the writable file, printed `Unable to write to "ro/ro.txt": Permission denied`, and exited 0.
-- **Recommendation:** Map `Err` from `fastermod` to a non-zero status. In `run_fast_impl`, keep walking after a file error if you want partial progress, but return that error so the process does not report success. Treat EOF on the empty-pattern prompt as a refusal. Add the three probes as exit-status tests.
-- **Fix with:** error-model
-- **Effort:** S
-
 ### FAST-3 · P3 · Path suffix filter skips unrelated files
 
 - **Area:** Data

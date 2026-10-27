@@ -1005,6 +1005,8 @@ impl Fastermod {
         let should_record_changed_files = changed_files.is_some();
         let changed_files = Arc::new(Mutex::new(changed_files.unwrap_or_default()));
         let changed_files_inner = changed_files.clone();
+        let file_error = Arc::new(Mutex::new(None));
+        let file_error_inner = file_error.clone();
         walk.run(move || {
             let mut fm = Fastermod::new(true, hidden, no_ignore, false);
             let regex = regex.clone();
@@ -1012,12 +1014,14 @@ impl Fastermod {
             let substitution = substitution.clone();
             let visited = visited.clone();
             let changed_files = changed_files_inner.clone();
+            let file_error = file_error_inner.clone();
             let mut searcher = make_searcher();
             Box::new(move |result| {
                 let dirent = match result {
                     Ok(d) => d,
                     Err(e) => {
                         eprintln!("Warning: {}", e);
+                        remember_first_error(&file_error, e.into());
                         return WalkState::Continue;
                     }
                 };
@@ -1045,7 +1049,10 @@ impl Fastermod {
                                     changed_files.push(path.to_owned())
                                 }
                             }
-                            Err(error) => eprintln!("{}", display_warning(&error)),
+                            Err(error) => {
+                                eprintln!("{}", display_warning(&error));
+                                remember_first_error(&file_error, error);
+                            }
                         }
                     }
                 }
@@ -1059,7 +1066,17 @@ impl Fastermod {
                 println!("{}", file.display());
             }
         }
+        if let Some(error) = file_error.lock().unwrap().take() {
+            return Err(error);
+        }
         Ok(())
+    }
+}
+
+fn remember_first_error(slot: &Mutex<Option<Error>>, error: Error) {
+    let mut slot = slot.lock().unwrap();
+    if slot.is_none() {
+        *slot = Some(error);
     }
 }
 
@@ -1122,11 +1139,19 @@ fn fastermod() -> Result<()> {
         .build()
         .map_err(|e| error_with_context(format!("Unable to make regex from {}", regex_str), e))?;
     if regex.is_match("") {
-        let _ = prompt_reply_stderr(&format!(
+        match prompt_reply_stderr(&format!(
             "Warning: your regex {:?} matches the empty string. This is probably
 not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
             regex,
-        ))?;
+        )) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Err("refusing to continue: regex matches the empty string".into());
+            }
+            Err(error) => {
+                return Err(error_with_context("Unable to read user input", error));
+            }
+        }
     }
     let matcher = RegexMatcherBuilder::new()
         .case_insensitive(case_insensitive)
@@ -1154,6 +1179,7 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
 fn main() {
     if let Err(e) = fastermod() {
         eprint!("{:?}", e);
+        exit(1);
     }
 }
 
@@ -1281,9 +1307,9 @@ mod tests {
         }
     }
 
-    // These are unit tests in main.rs, so Cargo does not provide the binary
-    // path that it provides to integration tests. Build it on demand when
-    // running from a clean target directory.
+    // Unit tests are not given CARGO_BIN_EXE_<name>, and `cargo test` does not
+    // rebuild this crate's binary. The test executable sits under deps/ or,
+    // with a separate build directory, under build/<package>/<hash>/out/.
     fn fastermod_binary() -> &'static Path {
         static BINARY: OnceLock<PathBuf> = OnceLock::new();
         BINARY.get_or_init(|| {
@@ -1292,18 +1318,15 @@ mod tests {
                 return PathBuf::from(binary);
             }
 
-            // The test executable sits under deps/ or, with a separate build
-            // directory, under build/<package>/<hash>/out/, so search upward for
-            // the profile directory that holds the binary.
             let name = env!("CARGO_PKG_NAME");
             let exe = env::current_exe().unwrap();
             let find = || exe.ancestors().skip(1).map(|dir| dir.join(name)).find(|path| path.is_file());
-            if let Some(binary) = find() {
+            if let Some(binary) = find()
+                && binary_is_at_least_as_new(&binary, &exe)
+            {
                 return binary;
             }
 
-            // Build in the test executable's own profile so the binary lands in
-            // the profile directory that the search above covers.
             let mut build = Command::new("cargo");
             build.args(["build", "--quiet", "--bin", env!("CARGO_PKG_NAME")]);
             if !cfg!(debug_assertions) {
@@ -1318,11 +1341,20 @@ mod tests {
         })
     }
 
+    fn binary_is_at_least_as_new(binary: &Path, exe: &Path) -> bool {
+        let binary_modified = fs::metadata(binary).and_then(|metadata| metadata.modified());
+        let exe_modified = fs::metadata(exe).and_then(|metadata| metadata.modified());
+        match (binary_modified, exe_modified) {
+            (Ok(binary_modified), Ok(exe_modified)) => binary_modified >= exe_modified,
+            _ => false,
+        }
+    }
+
     fn fastermod_command() -> Command {
         Command::new(fastermod_binary())
     }
 
-    fn assert_fastermod<I, S>(args: I, input: Option<&str>, expected_stdout: Option<&str>)
+    fn run_fastermod<I, S>(args: I, input: Option<&str>) -> std::process::Output
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
@@ -1347,7 +1379,15 @@ mod tests {
                 .write_all(input.as_bytes())
                 .unwrap();
         }
-        let output = child.wait_with_output().unwrap();
+        child.wait_with_output().unwrap()
+    }
+
+    fn assert_fastermod<I, S>(args: I, input: Option<&str>, expected_stdout: Option<&str>)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let output = run_fastermod(args, input);
         assert!(
             output.status.success(),
             "fastermod failed: {}",
@@ -1718,5 +1758,68 @@ mod tests {
         let file_path = dir.path().join("foo.txt");
         let new_contents = read_to_string(file_path).unwrap();
         assert_eq!(new_contents, "$foo.bar");
+    }
+
+    #[test]
+    fn test_invalid_regex_exits_nonzero() {
+        let dir = TestDir::with_prefix("fastermodtest.");
+        let output = run_fastermod(["(", "x", dir.path().to_str().unwrap()], None);
+        assert!(
+            !output.status.success(),
+            "invalid regex exited {:?}",
+            output.status.code()
+        );
+    }
+
+    #[test]
+    fn test_empty_pattern_eof_exits_nonzero() {
+        let dir = create_test_files(&[("file.txt", "aaa")]);
+        let output = run_fastermod(
+            [
+                "--accept-all",
+                "a*",
+                "x",
+                dir.path().to_str().unwrap(),
+            ],
+            None,
+        );
+        assert!(
+            !output.status.success(),
+            "empty pattern with closed stdin exited {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let contents = read_to_string(dir.path().join("file.txt")).unwrap();
+        assert_eq!(contents, "aaa");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_permission_denied_write_exits_nonzero() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = create_test_files(&[("ro.txt", "foo"), ("rw.txt", "foo")]);
+        let ro = dir.path().join("ro.txt");
+        let mut permissions = fs::metadata(&ro).unwrap().permissions();
+        permissions.set_mode(0o444);
+        fs::set_permissions(&ro, permissions).unwrap();
+
+        let output = run_fastermod(
+            [
+                "--accept-all",
+                "foo",
+                "BAR",
+                dir.path().to_str().unwrap(),
+            ],
+            None,
+        );
+        assert!(
+            !output.status.success(),
+            "permission denied write exited {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(read_to_string(&ro).unwrap(), "foo");
+        assert_eq!(read_to_string(dir.path().join("rw.txt")).unwrap(), "BAR");
     }
 }
