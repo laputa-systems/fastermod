@@ -1,24 +1,6 @@
 Prefix: FAST
 Next: 9
 
-### FAST-3 · P3 · Path suffix filter skips unrelated files
-
-- **Area:** Data
-- **Where:** `src/main.rs:338`
-- **Problem:** `looks_like_code` drops any path whose lossy string ends in `~`, `tags`, or `TAGS`. That skips editor backups and a file named `tags`, and also `ctags`, `mytags`, and `file.tags`. Nothing is printed. A probe with `--accept-all foo bar` rewrote `keep.rs` to `bar` and left `ctags`, `mytags`, and `file.tags` as `foo`.
-- **Recommendation:** Decide from the file name. Skip a name equal to `tags` or `TAGS`, and a name that ends in `~`. Test that `ctags`, `mytags`, and `file.tags` change, and that a file named `tags` does not.
-- **Fix with:** none
-- **Effort:** S
-
-### FAST-4 · P3 · Accepted writes truncate before the new bytes land
-
-- **Area:** Data
-- **Where:** `src/main.rs:665`
-- **Problem:** `save` uses `std::fs::write`. In nightly-2026-09-15 that function is `File::create` followed by `write_all`, and `File::create` truncates. A signal between the truncate and the completed write leaves an empty or partial source file. Both interactive accept and `fast_patch` go through `save`. The kill window was not reproduced inside `fastermod`. The truncate-on-create behavior is the standard library used by that call.
-- **Recommendation:** Write a temporary file in the destination directory, `fsync` it, rename it over the target, and remove the temporary file if the write fails. Keep the existing contents if the rename does not happen.
-- **Fix with:** os-boundaries
-- **Effort:** S
-
 ### FAST-6 · P3 · Release toolchain and panic flags are copied
 
 - **Area:** Build
