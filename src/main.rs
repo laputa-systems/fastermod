@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::sync_channel;
 use std::thread;
 
 use grep::regex::RegexMatcher;
@@ -975,7 +975,8 @@ impl Fastermod {
             .git_exclude(!self.no_ignore)
             .threads(min(12, available_worker_threads()))
             .build_parallel();
-        let (tx, rx) = channel();
+        const QUEUE: usize = 16;
+        let (tx, rx) = sync_channel(QUEUE);
         let thread_matcher = matcher.clone();
         thread::spawn(|| {
             walk.run(move || {
@@ -1015,20 +1016,24 @@ impl Fastermod {
             visited.insert(path.clone());
             self.present_and_apply_patches(regex, substitution, &path, contents)?;
             if self.yes_to_all {
-                terminal::clear();
-                notify_fast_mode();
-                return Fastermod::run_fast_impl(
-                    regex,
-                    matcher,
-                    substitution,
-                    dirs,
-                    file_set,
-                    self.hidden,
-                    self.no_ignore,
-                    self.changed_files.clone(),
-                    Some(visited),
-                );
+                break;
             }
+        }
+        drop(rx);
+        if self.yes_to_all {
+            terminal::clear();
+            notify_fast_mode();
+            return Fastermod::run_fast_impl(
+                regex,
+                matcher,
+                substitution,
+                dirs,
+                file_set,
+                self.hidden,
+                self.no_ignore,
+                self.changed_files.clone(),
+                Some(visited),
+            );
         }
         self.print_changed_files_if_needed();
         Ok(())
@@ -1778,6 +1783,23 @@ mod tests {
             .unwrap();
         let contents = read_to_string(file_path).unwrap();
         assert_eq!(contents, "foofoo");
+    }
+
+    #[test]
+    fn test_interactive_yes_to_all_finishes_fast() {
+        let dir = create_test_files(&[
+            ("a.txt", "foo"),
+            ("b.txt", "foo"),
+            ("c.txt", "foo"),
+        ]);
+        assert_fastermod(
+            ["foo", "bar", "--dir", dir.path().to_str().unwrap()],
+            Some("A\n"),
+            None,
+        );
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            assert_eq!(read_to_string(dir.path().join(name)).unwrap(), "bar");
+        }
     }
 
     #[test]

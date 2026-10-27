@@ -19,15 +19,6 @@ Next: 9
 - **Fix with:** os-boundaries
 - **Effort:** S
 
-### FAST-5 · P3 · Interactive review queues every matching file
-
-- **Area:** Concurrency
-- **Where:** `src/main.rs:887`
-- **Problem:** Interactive mode spawns a parallel walk that sends each matching path and its full contents on an unbounded `mpsc` channel. The user answers one prompt at a time, and the walk does not stop. On a large tree the queue holds the rest of the matching files. Pressing `A` leaves that channel open until `run_fast_impl` returns, so the first walk keeps filling it during the second pass. Memory growth was not measured. A stdin-closed probe exited before a sample.
-- **Recommendation:** Bound the channel and block the walk when it is full, or read the next file only after the current prompt returns. Drop the sender when switching to fast mode so the first walk stops.
-- **Fix with:** lifecycle-concurrency
-- **Effort:** M
-
 ### FAST-6 · P3 · Release toolchain and panic flags are copied
 
 - **Area:** Build
