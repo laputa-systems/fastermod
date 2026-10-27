@@ -520,17 +520,21 @@ impl Sink for FastermodSink {
     }
 }
 
-fn to_char_boundary(s: &str, mut index: usize) -> usize {
-    while index < s.len() && !s.is_char_boundary(index) {
-        index += 1;
+fn resume_after(s: &str, index: usize, zero_length: bool) -> usize {
+    let index = index.min(s.len());
+    if zero_length {
+        one_char_past(s, index)
+    } else {
+        index
     }
-    debug_assert!(
-        index > s.len() || s.is_char_boundary(index),
-        "index: {}, len: {}",
-        index,
+}
+
+fn one_char_past(s: &str, index: usize) -> usize {
+    if index >= s.len() {
         s.len()
-    );
-    index
+    } else {
+        index + s[index..].chars().next().unwrap().len_utf8()
+    }
 }
 
 fn backward_to_char_boundary(s: &str, mut index: usize) -> usize {
@@ -710,48 +714,51 @@ impl Fastermod {
     ) -> Result<()> {
         let mut offset = 0;
         while offset < contents.len() {
-            {
-                let captures = regex.captures(&contents[offset..]);
-                match captures {
+            let (accepted, applied_end, match_end, is_zero_length_match, previous, proposed) = {
+                let captures = match regex.captures(&contents[offset..]) {
                     None => break,
-                    Some(captures) => {
-                        let mat = captures.get(0).unwrap();
-                        let replacement = substitution.replacement(&captures);
-                        let mut new_contents = contents[..offset].to_string();
-                        new_contents.push_str(&contents[offset..offset + mat.start()]);
-                        new_contents.push_str(&replacement);
-                        new_contents.push_str(&contents[offset + mat.end()..]);
-                        let is_zero_length_match = mat.end() == mat.start();
-                        let (start_line, _) = index_to_row_col(&contents, mat.start() + offset);
-                        let (end_line, _) = index_to_row_col(
-                            &contents,
-                            backward_to_char_boundary(
-                                &contents,
-                                mat.end() + offset - if is_zero_length_match { 0 } else { 1 },
-                            ),
-                        );
-                        let accepted = self.ask_about_patch(
-                            path,
-                            &contents,
-                            start_line + 1,
-                            end_line + 1,
-                            &new_contents,
-                        )?;
-                        if accepted {
-                            offset = to_char_boundary(
-                                &contents,
-                                offset
-                                + mat.start()
-                                + replacement.len()
-                                + if is_zero_length_match { 1 } else { 0 },
-                            );
-                        } else {
-                            offset = to_char_boundary(&contents, offset + mat.end() + 1);
-                        }
-                    }
-                }
-            }
-            contents = read_to_string(path)?;
+                    Some(captures) => captures,
+                };
+                let mat = captures.get(0).unwrap();
+                let replacement = substitution.replacement(&captures);
+                let mut new_contents = contents[..offset].to_string();
+                new_contents.push_str(&contents[offset..offset + mat.start()]);
+                new_contents.push_str(&replacement);
+                new_contents.push_str(&contents[offset + mat.end()..]);
+                let is_zero_length_match = mat.end() == mat.start();
+                let (start_line, _) = index_to_row_col(&contents, mat.start() + offset);
+                let (end_line, _) = index_to_row_col(
+                    &contents,
+                    backward_to_char_boundary(
+                        &contents,
+                        mat.end() + offset - if is_zero_length_match { 0 } else { 1 },
+                    ),
+                );
+                let accepted = self.ask_about_patch(
+                    path,
+                    &contents,
+                    start_line + 1,
+                    end_line + 1,
+                    &new_contents,
+                )?;
+                (
+                    accepted,
+                    offset + mat.start() + replacement.len(),
+                    offset + mat.end(),
+                    is_zero_length_match,
+                    contents.clone(),
+                    new_contents,
+                )
+            };
+            let written = read_to_string(path)?;
+            offset = if accepted && written == proposed {
+                resume_after(&written, applied_end, is_zero_length_match)
+            } else if accepted && written != previous {
+                0
+            } else {
+                resume_after(&written, match_end, is_zero_length_match)
+            };
+            contents = written;
         }
         Ok(())
     }
@@ -1535,6 +1542,23 @@ mod tests {
             None,
             Some(&format!("{}\n", expected_changed_files.join("\n"))),
         );
+    }
+
+    #[test]
+    fn test_accept_longer_replacement_before_multibyte_char() {
+        let dir = create_test_files(&[("foo.txt", "aé")]);
+        let file_path = dir.path().join("foo.txt");
+        let regex = RegexBuilder::new("a").build().unwrap();
+        let mut fm = Fastermod::new(true, false, false, false);
+        fm.present_and_apply_patches(
+            &regex,
+            &Substitution::new("bb".to_owned(), false),
+            &file_path,
+            "aé".into(),
+        )
+            .unwrap();
+        let contents = read_to_string(file_path).unwrap();
+        assert_eq!(contents, "bbé");
     }
 
     #[test]

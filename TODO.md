@@ -1,15 +1,6 @@
 Prefix: FAST
 Next: 9
 
-### FAST-1 · P1 · Interactive review panics or skips the next match
-
-- **Area:** Data
-- **Where:** `src/main.rs:704`, `src/main.rs:740`, `src/main.rs:749`, `src/main.rs:754`
-- **Problem:** `present_and_apply_patches` keeps a byte cursor in the pre-replacement string, snaps it with `to_char_boundary` on that old string, then reloads the file and slices at that cursor. Accepting a change whose new byte length lands inside a later UTF-8 character panics, after the first write. Rejecting a match advances one byte past `mat.end()`, so a second match that starts on the next byte is never offered. `--accept-all` does not use this cursor. It calls `replace_all` in `fast_patch` and is fine. Probes with `target/debug/fastermod` before the comment-only edits: `printf 'y\n' | fastermod a bb` on `aé` wrote `bbé` and panicked (`start byte index 3 is not a char boundary`), exit 101. `printf 'n\ny\n' | fastermod foo bar` on `foofoo` prompted once and left `foofoo`, exit 0. The same `a` to `bb` replacement with `--accept-all` wrote `bbé` and exited 0. `printf 'y\ny\n'` on ASCII `foofoo` wrote `barbar`.
-- **Recommendation:** Resume each search in the string that will actually be scanned. On accept, take the cursor from the post-replacement text. On reject, resume at `mat.end()`, and add one byte only when the match is empty. After `e` or `E`, start again at 0 on the reread file. Add the two probes above as tests.
-- **Fix with:** none
-- **Effort:** S
-
 ### FAST-2 · P2 · Failures exit 0
 
 - **Area:** Errors
