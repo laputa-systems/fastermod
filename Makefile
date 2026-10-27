@@ -11,7 +11,7 @@ comma      := ,
 RELEASE_RUSTFLAGS := -Zlocation-detail=none -Zunstable-options -Cpanic=immediate-abort $(if $(findstring apple-darwin,$(TARGET)),-Clink-arg=-Wl$(comma)-dead_strip_dylibs)
 cargo = $(if $(findstring -linux-musl,$(TARGET)),,$(if $(filter release-static test,$(1)),CARGO_TARGET_$(TARGET_ENV)_LINKER=clang ,)$(if $(filter release-static,$(1)),RUSTFLAGS="$(RELEASE_RUSTFLAGS)")) MUSL_TARGET="$(TARGET)" MUSL_BUILD_MODE="$(1)" $(CARGO_CMD)
 
-.PHONY: build test test-ci lint release verify-release install bench
+.PHONY: build test test-ci lint release verify-release install bench print-release-rustflags
 
 build:
 	$(call cargo,dev) build
@@ -31,6 +31,9 @@ release:
 	  -Z build-std=std \
 	  -Z build-std-features= \
 	  --target $(TARGET)
+
+print-release-rustflags:
+	@echo '$(RELEASE_RUSTFLAGS)'
 
 verify-release:
 	@test -f "target/$(TARGET)/dist/$(NAME)"

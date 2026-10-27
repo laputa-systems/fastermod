@@ -83,11 +83,16 @@ ENV PATH="/opt/llvm-musl/bin:/root/.cargo/bin:$PATH" \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="/opt/llvm-musl/bin/clang" \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="/opt/llvm-musl/bin/clang"
 
-RUN rustup toolchain install nightly-2026-09-15 \
+# The pinned toolchain and the release flags both come from the repository, so
+# a manifest or Makefile edit reuses no stale layer from the build cache.
+COPY rust-toolchain.toml Makefile /fastermod/
+RUN channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' /fastermod/rust-toolchain.toml)" \
+    && rustup toolchain install "$channel" \
     --target x86_64-unknown-linux-musl \
     --target aarch64-unknown-linux-musl \
     --component rust-src \
-    --component llvm-tools-preview
+    --component llvm-tools-preview \
+    && rustup default "$channel"
 
 # Host proc-macro links search rustc's target library directory for CRT
 # startup objects. Keep those objects available there without changing the
@@ -104,6 +109,9 @@ RUN host_libdir="$(rustc --print target-libdir)" \
     && ln -sf /usr/lib/libgcc_s.so.1 "$host_libdir/libgcc_s.so" \
     && ln -sf /usr/lib/libgcc_s.so.1 "$host_libdir/libgcc_s.so.1" \
     && ln -sf /usr/lib/libc.so "$host_libdir/libc.so"
+
+RUN mkdir -p /usr/local/share/fastermod \
+    && make -C /fastermod -s print-release-rustflags > /usr/local/share/fastermod/release-rustflags
 
 RUN cat > /usr/local/bin/musl-cargo <<'EOF' \
     && chmod +x /usr/local/bin/musl-cargo
@@ -125,7 +133,7 @@ esac
 
 mode=${MUSL_BUILD_MODE:-static}
 native="-L native=/usr/lib -Clink-arg=-B$crt -Clink-arg=--ld-path=/opt/mold/bin/mold"
-release="-Zlocation-detail=none -Zunstable-options -Cpanic=immediate-abort"
+release="$(cat /usr/local/share/fastermod/release-rustflags)"
 case "$mode" in
     static|test)
         flags=$native

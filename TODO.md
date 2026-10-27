@@ -1,15 +1,6 @@
 Prefix: FAST
 Next: 9
 
-### FAST-6 · P3 · Release toolchain and panic flags are copied
-
-- **Area:** Build
-- **Where:** `rust-toolchain.toml:2`, `Dockerfile:86`, `Makefile:11`, `Dockerfile:128`
-- **Problem:** Local builds take `nightly-2026-09-15` from `rust-toolchain.toml`. The release image installs that same date itself, so a toolchain bump that edits only the manifest does not change Linux release builds. `-Cpanic=immediate-abort` and the other release `-Z` flags are set in `RELEASE_RUSTFLAGS` and again in the `musl-cargo` script. Those two lists can diverge. macOS `make release` and the Linux image would then not be the same panic mode.
-- **Recommendation:** Copy `rust-toolchain.toml` into the image and install that toolchain. Build the `musl-cargo` release flags from the same list `Makefile` uses.
-- **Fix with:** single-source-of-truth
-- **Effort:** S
-
 ### FAST-7 · P3 · License files disagree with the notices in the tree
 
 - **Area:** Docs
