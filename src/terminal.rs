@@ -56,9 +56,6 @@ fn write_ansi(sequence: &str) -> io::Result<()> {
 }
 
 #[cfg(unix)]
-// The interactive view is sized once from the controlling terminal. Keeping
-// this cached means a later window resize does not change the context shown
-// for an in-progress run.
 static TERMINAL_SIZE: OnceLock<Option<(usize, usize)>> = OnceLock::new();
 
 #[cfg(unix)]

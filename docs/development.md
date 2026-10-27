@@ -14,9 +14,10 @@ The command definitions are in the [`Makefile`](../Makefile).
 | Install a local release build | `make install` |
 | Run benchmarks | `make bench` |
 
-`make lint` uses `cargo clippy --fix --allow-dirty`, so review any source edits
-it makes. `make install` builds a release binary and copies it to
+`make install` builds a release binary and copies it to
 `~/.local/bin/fastermod`; on macOS it also applies ad hoc code signing.
+The `fastermod` library `include!`s `src/main.rs`, so `make bench` runs the
+same code as the binary.
 
 `make bench` uses `benches/baseline.json` and expects `../rustybench` by default.
 Set `RUSTYBENCH` to override that command. See [release builds](release.md)

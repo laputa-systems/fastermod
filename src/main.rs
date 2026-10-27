@@ -80,9 +80,6 @@ enum FileSet {
     },
 }
 
-/// The presentation shape used by the interactive diff view. The histogram
-/// diff computes compact changed ranges, which are expanded into this line-oriented
-/// form only for the context that will be displayed.
 #[derive(Clone, Debug, PartialEq)]
 enum DiffResult<'a> {
     Left(&'a str),
@@ -346,8 +343,6 @@ fn looks_like_code(path: &Path) -> bool {
 fn read_reply() -> std::io::Result<String> {
     let mut reply = String::new();
     std::io::stdin().read_line(&mut reply)?;
-    // We expect a trailing newline. This prevents mishandling of a
-    // piped input without a final newline (e.g. `printf "n"`).
     if !reply.ends_with('\n') {
         return Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -436,7 +431,6 @@ fn walk_builder_with_file_set(dirs: Vec<&str>, file_set: Option<FileSet>) -> Res
     Ok(builder)
 }
 
-/// Convert a 0-based character offset to 0-based line number and column.
 fn index_to_row_col(s: &str, index: usize) -> (usize, usize) {
     let chunk = &s[..index];
     let line_num = chunk.chars().filter(|x| x == &'\n').count();
@@ -558,9 +552,6 @@ fn compute_diff<'a>(orig: &'a str, edit: &'a str) -> HistogramDiff<'a> {
     histogram_diff(orig, edit)
 }
 
-/// Returns the length of the expanded diff, plus its unchanged prefix and
-/// suffix. Keeping this as counts means a large unchanged file does not need a
-/// `DiffResult` entry for every line just to select a small display context.
 fn diff_output_shape(diff: &HistogramDiff<'_>) -> (usize, usize, usize) {
     let mut output_len = 0;
     let mut before_position = 0;
@@ -693,7 +684,6 @@ impl Fastermod {
         }
     }
 
-    // Returns true if the file was changed, false otherwise.
     fn fast_patch(
         &mut self,
         regex: &Regex,
@@ -761,13 +751,11 @@ impl Fastermod {
                     }
                 }
             }
-            // re-open file in case contents changed.
             contents = read_to_string(path)?;
         }
         Ok(())
     }
 
-    /// Returns true if the patch was accepted, false otherwise.
     fn ask_about_patch<'a>(
         &mut self,
         path: &Path,
@@ -834,9 +822,6 @@ impl Fastermod {
 
         let (diff_len, num_prefix_lines, num_suffix_lines) = diff_output_shape(&diff);
 
-        // If the prefix is the length of the diff then the file matched <regex>
-        // but applying <subst> didn't result in any changes, there are no diffs
-        // to print so we return an empty Vec.
         if diff_len == num_prefix_lines {
             return vec![];
         }
@@ -934,23 +919,11 @@ impl Fastermod {
             })
         });
 
-        // We have to keep track of which paths we've visited so that
-        // if the user presses A to accept all changes and we kick
-        // over into run_fast(), we don't apply the regex to files the
-        // user has already addressed interactively. (The user may
-        // have made manual edits or declined to replace some files.)
-        // Since the user is doing this interactively and we don't
-        // support bookmarks, this set presumably isn't going to grow so large
-        // that the memory usage becomes a concern.
         let mut visited = HashSet::default();
         while let Ok((path, contents)) = rx.recv() {
             visited.insert(path.clone());
             self.present_and_apply_patches(regex, substitution, &path, contents)?;
             if self.yes_to_all {
-                // Kick over into fast mode. We restart the
-                // search, but we have our visited set so that
-                // we won't apply changes to files the user
-                // has already addressed.
                 terminal::clear();
                 notify_fast_mode();
                 return Fastermod::run_fast_impl(
@@ -1026,8 +999,6 @@ impl Fastermod {
         let changed_files = Arc::new(Mutex::new(changed_files.unwrap_or_default()));
         let changed_files_inner = changed_files.clone();
         walk.run(move || {
-            // We have to do our own changed file tracking, so don't
-            // enable it in our Fastermod instance.
             let mut fm = Fastermod::new(true, hidden, no_ignore, false);
             let regex = regex.clone();
             let matcher = matcher.clone();
@@ -1139,7 +1110,7 @@ fn fastermod() -> Result<()> {
         ignore_case || (smart_case && !regex_str.chars().any(char::is_uppercase));
     let regex = RegexBuilder::new(&maybe_escaped_regex)
         .case_insensitive(case_insensitive)
-        .multi_line(true) // match codemod behavior for ^ and $.
+        .multi_line(true)
         .dot_matches_new_line(multiline)
         .build()
         .map_err(|e| error_with_context(format!("Unable to make regex from {}", regex_str), e))?;
@@ -1179,12 +1150,6 @@ fn main() {
     }
 }
 
-/// Narrow wrappers used by the executable benchmark suite.
-///
-/// These functions intentionally call the production implementations instead
-/// of reproducing their algorithms in `benches/bench.rs`. They are hidden from
-/// generated API documentation because they are measurement seams, not an
-/// application API.
 #[doc(hidden)]
 pub mod benchmark {
     use super::*;
@@ -1274,8 +1239,6 @@ mod tests {
 
     use super::*;
 
-    /// A minimal temp directory that removes itself on drop, so we
-    /// don't need the tempfile crate just for tests.
     struct TestDir {
         path: PathBuf,
     }
@@ -1635,7 +1598,6 @@ mod tests {
         );
     }
 
-    // Leading dot meaning hidden is a Unix thing.
     #[cfg(target_family = "unix")]
     #[test]
     fn test_hidden_files() {

@@ -15,3 +15,4 @@ Rust CLI for reviewing or applying regular-expression substitutions across files
 
 - Local development: [docs/development.md](docs/development.md).
 - Release builds and artifacts: [docs/release.md](docs/release.md).
+- License notices: [docs/rfc/FAST-7-license-notices.md](docs/rfc/FAST-7-license-notices.md).

@@ -2,7 +2,6 @@ use crate::histogram::lcs::find_lcs;
 use crate::histogram::list_pool::{ListHandle, ListPool};
 use crate::intern::Token;
 
-/// Maximum number of occurrences tracked for a single token.
 const MAX_CHAIN_LEN: u32 = 63;
 
 struct Histogram {
@@ -87,9 +86,6 @@ impl Histogram {
                     added = &mut added[after_end as usize..];
                 }
                 None => {
-                    // Highly repetitive inputs exceed the histogram chain
-                    // limit. Marking the region changed keeps this crate
-                    // histogram-only while remaining conservative for callers.
                     removed.fill(true);
                     added.fill(true);
                     return;

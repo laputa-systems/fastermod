@@ -24,6 +24,7 @@ fastermod 'OldName' 'NewName' src/
 ```
 
 The first argument is a regular expression; the second is its replacement.
+`^` and `$` always match line boundaries. `-m` only makes `.` match a newline.
 Without a path, `fastermod` searches the current directory. By default it skips
 hidden and ignored files. Accepted replacements are written to the matched file.
 
