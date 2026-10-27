@@ -336,8 +336,13 @@ fn run_editor(path: &Path, start_line: usize) -> Result<()> {
 }
 
 fn looks_like_code(path: &Path) -> bool {
-    let s = path.to_string_lossy();
-    !s.ends_with('~') && !s.ends_with("tags") && !s.ends_with("TAGS")
+    match path.file_name() {
+        Some(name) => {
+            let name = name.to_string_lossy();
+            name != "tags" && name != "TAGS" && !name.ends_with('~')
+        }
+        None => true,
+    }
 }
 
 fn read_reply() -> std::io::Result<String> {
@@ -1436,6 +1441,50 @@ mod tests {
         );
         let contents = read_to_string(dir.path().join("file1.c")).unwrap();
         assert_eq!(contents, "bar\nbar blah bar");
+    }
+
+    #[test]
+    fn test_looks_like_code_uses_file_name() {
+        for name in ["keep.rs", "ctags", "mytags", "file.tags", "TAGS.bak"] {
+            assert!(
+                looks_like_code(Path::new(name)),
+                "{name} should be treated as code"
+            );
+        }
+        for name in ["tags", "TAGS", "backup~"] {
+            assert!(
+                !looks_like_code(Path::new(name)),
+                "{name} should be skipped"
+            );
+        }
+        assert!(looks_like_code(Path::new("src/mytags")));
+        assert!(!looks_like_code(Path::new("src/tags")));
+    }
+
+    #[test]
+    fn test_tags_like_filenames_are_rewritten() {
+        let dir = create_test_files(&[
+            ("keep.rs", "foo"),
+            ("ctags", "foo"),
+            ("mytags", "foo"),
+            ("file.tags", "foo"),
+            ("tags", "foo"),
+        ]);
+        assert_fastermod(
+            [
+                "foo",
+                "bar",
+                "--accept-all",
+                "--dir",
+                dir.path().to_str().unwrap(),
+            ],
+            None,
+            None,
+        );
+        for name in ["keep.rs", "ctags", "mytags", "file.tags"] {
+            assert_eq!(read_to_string(dir.path().join(name)).unwrap(), "bar");
+        }
+        assert_eq!(read_to_string(dir.path().join("tags")).unwrap(), "foo");
     }
 
     #[test]
