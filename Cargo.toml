@@ -17,7 +17,7 @@ lexopt = "0.3.2"
 regex-lite = "0.1.9"
 
 [dev-dependencies]
-rustybench = "0.1"
+rustybench = "0.4"
 
 [[bench]]
 name = "bench"
