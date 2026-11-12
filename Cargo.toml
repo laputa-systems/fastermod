@@ -10,14 +10,14 @@ description = "A fast partial replacement for codemod"
 license = "MIT"
 
 [dependencies]
-grep = "0.3"
+grep = "0.4"
 ignore = "0.4.1"
 imara-histogram-diff = { path = "imara-histogram-diff" }
 lexopt = "0.3.2"
 regex-lite = "0.1.9"
 
 [dev-dependencies]
-rustybench = "0.4"
+rustybench = "0.5"
 
 [[bench]]
 name = "bench"
