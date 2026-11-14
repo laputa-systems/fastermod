@@ -208,7 +208,7 @@ fn patch_single_1mb_file(b: Bencher) {
             (&regex_b, "needle_a", &replacement)
         };
         let changed = benchmark::patch_file(regex, substitution, &path, contents).unwrap();
-        use_a = !use_a;
+        use_a.toggle();
         black_box(changed);
     });
 }
