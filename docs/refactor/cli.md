@@ -134,7 +134,7 @@ Rules:
     "unresolved": [{"path": "...", "detail": "..."}]
   },
   "edits": [
-    {"path": "...", "byte_start": 0, "byte_end": 0,
+    {"path": "...", "byte_start": 0, "byte_end": 0, "applied": false,
      "anchor": {"line": 1, "column": 1, "excerpt": "..."},
      "kind": "text | ident | rewrite | rename-reference | ..."}
   ],
@@ -144,6 +144,11 @@ Rules:
 ```
 
 JSON never implies permission to mutate; `applied` reports what happened.
+Top-level `applied` is true only when every planned file was written; the
+per-edit `applied` flag records each file's outcome so a partial apply is
+visible in the result, not just the exit code. Apply safety, link and
+metadata policy, and the residual TOCTOU model are specified in
+`docs/refactor/apply-safety.md`.
 Truncation is forbidden: `files_skipped`/`unresolved` must be complete or the
 run fails.
 

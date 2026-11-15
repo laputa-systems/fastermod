@@ -65,6 +65,8 @@ pub(crate) struct PlannedFile {
     pub before: String,
     pub after: String,
     pub before_hash: u64,
+    /// Set only after this file's staged write has been renamed into place.
+    pub applied: bool,
     pub edits: Vec<SpanEdit>,
 }
 
@@ -186,6 +188,7 @@ pub(crate) fn build_text_plan(
                 before_hash: content_hash(&file.contents),
                 before: file.contents.clone(),
                 after,
+                applied: false,
                 edits,
             });
         }
@@ -273,9 +276,17 @@ pub(crate) fn validate(plan: &EditPlan) -> Vec<String> {
 
 /// Apply a validated plan against the current filesystem.
 ///
-/// Every file's current bytes must still match the snapshot fingerprint;
-/// any stale file refuses the whole operation before any write (per-file
-/// atomicity, no cross-file transaction — see docs/refactor/cli.md).
+/// Every file's current bytes must still match the snapshot fingerprint and
+/// every path must resolve inside a declared coverage root; any stale,
+/// escaped or unreadable file refuses the whole operation before any write.
+///
+/// Writes are per-file atomic (same-directory stage + rename) but there is
+/// no cross-file transaction: a mid-apply I/O failure leaves earlier files
+/// applied. Each [`PlannedFile::applied`] records what happened so callers
+/// can report exactly which files were written, and the returned error
+/// lists applied and failed paths for recovery. The residual TOCTOU window
+/// between the staleness read and the rename is documented in
+/// docs/refactor/apply-safety.md.
 pub(crate) fn apply(plan: &mut EditPlan) -> std::result::Result<usize, Failure> {
     let problems = validate(plan);
     if !problems.is_empty() {
@@ -284,20 +295,86 @@ pub(crate) fn apply(plan: &mut EditPlan) -> std::result::Result<usize, Failure> 
             problems.join("; ")
         )));
     }
+
+    // Root containment: canonicalize declared roots once, then require every
+    // planned file to resolve inside one of them. This is the gate that keeps
+    // a hand-built or stale plan from writing outside the analyzed tree.
+    let mut roots = Vec::new();
+    for root in &plan.coverage.roots {
+        match std::fs::canonicalize(root) {
+            Ok(canonical) => roots.push(canonical),
+            Err(e) => {
+                return Err(Failure::io(format!(
+                    "cannot canonicalize plan root {}: {e}",
+                    root
+                )));
+            }
+        }
+    }
+
     let mut stale = Vec::new();
+    let mut escaped = Vec::new();
+    let mut unsafe_files = Vec::new();
     for file in &plan.files {
-        match std::fs::read_to_string(&file.path) {
-            Ok(current)
-                if content_hash(&current) == file.before_hash
-                    && current.len() == file.before.len() => {}
-            Ok(_) => stale.push(file.path.display().to_string()),
+        // Preflight file type without following links: a symlink or
+        // non-regular file in a plan is refused for the whole operation,
+        // matching the save() guard.
+        match std::fs::symlink_metadata(&file.path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                unsafe_files.push(format!("{} (symbolic link)", file.path.display()));
+                continue;
+            }
+            Ok(metadata) if !metadata.file_type().is_file() => {
+                unsafe_files.push(format!("{} (non-regular file)", file.path.display()));
+                continue;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                return Err(Failure::io(format!(
+                    "unable to stat {}: {e}",
+                    file.path.display()
+                )));
+            }
+        }
+        let current = match std::fs::read_to_string(&file.path) {
+            Ok(current) => current,
             Err(e) => {
                 return Err(Failure::io(format!(
                     "unable to read {} for staleness check: {e}",
                     file.path.display()
                 )));
             }
+        };
+        match std::fs::canonicalize(&file.path) {
+            Ok(canonical)
+                if roots.iter().any(|root| canonical.starts_with(root)) => {}
+            Ok(canonical) => escaped.push(format!(
+                "{} (resolved to {})",
+                file.path.display(),
+                canonical.display()
+            )),
+            Err(e) => {
+                return Err(Failure::io(format!(
+                    "cannot canonicalize {}: {e}",
+                    file.path.display()
+                )));
+            }
         }
+        if content_hash(&current) != file.before_hash || current.len() != file.before.len() {
+            stale.push(file.path.display().to_string());
+        }
+    }
+    if !unsafe_files.is_empty() {
+        return Err(Failure::io(format!(
+            "plan contains unsafe file types: {}",
+            unsafe_files.join(", ")
+        )));
+    }
+    if !escaped.is_empty() {
+        return Err(Failure::io(format!(
+            "plan contains paths outside the declared roots: {}",
+            escaped.join(", ")
+        )));
     }
     if !stale.is_empty() {
         return Err(Failure::io(format!(
@@ -305,11 +382,31 @@ pub(crate) fn apply(plan: &mut EditPlan) -> std::result::Result<usize, Failure> 
             stale.join(", ")
         )));
     }
+
     let mut fm = Fastermod::new(true, false, false, false);
-    for file in &plan.files {
-        operational(fm.save(&file.path, &file.after))?;
+    let mut failed = Vec::new();
+    for file in &mut plan.files {
+        match operational(fm.save(&file.path, &file.after)) {
+            Ok(()) => file.applied = true,
+            Err(e) => failed.push(format!("{} ({e})", file.path.display())),
+        }
     }
-    plan.applied = true;
+    plan.applied = failed.is_empty();
+    if !failed.is_empty() {
+        let applied: Vec<String> = plan
+            .files
+            .iter()
+            .filter(|f| f.applied)
+            .map(|f| f.path.display().to_string())
+            .collect();
+        return Err(Failure::io(format!(
+            "apply incomplete: {} of {} files written; applied: [{}]; failed: [{}]",
+            applied.len(),
+            plan.files.len(),
+            applied.join(", "),
+            failed.join(", ")
+        )));
+    }
     Ok(plan.files.len())
 }
 
@@ -343,6 +440,7 @@ mod tests {
                 before_hash: content_hash(before),
                 before: before.to_string(),
                 after: String::new(),
+                applied: false,
                 edits,
             }],
             diagnostics: Vec::new(),
@@ -409,5 +507,188 @@ mod tests {
         assert_eq!(a.files[0].after, "f0 b0");
         assert_eq!(a.files[0].edits.len(), 2);
         assert!(validate(&a).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod apply_tests {
+    use std::fs;
+    use std::time::SystemTime;
+
+    use super::*;
+    use crate::source::SourceFile;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> TempDir {
+            let base = std::env::temp_dir();
+            for _ in 0..1000 {
+                let unique = format!(
+                    "fastermod-plan-test-{}-{}",
+                    std::process::id(),
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos(),
+                );
+                let path = base.join(unique);
+                if fs::create_dir(&path).is_ok() {
+                    return TempDir(path);
+                }
+            }
+            panic!("unable to create temp dir");
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write(dir: &TempDir, name: &str, contents: &str) -> PathBuf {
+        let path = dir.0.join(name);
+        fs::write(&path, contents).unwrap();
+        path
+    }
+
+    fn plan_for(dir: &TempDir, names: &[&str]) -> EditPlan {
+        let regex = Regex::new("foo").unwrap();
+        let substitution = Substitution::new("bar".to_string(), false);
+        let files: Vec<SourceFile> = names
+            .iter()
+            .map(|name| {
+                let path = dir.0.join(name);
+                SourceFile {
+                    contents: fs::read_to_string(&path).unwrap(),
+                    path,
+                }
+            })
+            .collect();
+        build_text_plan(
+            "text",
+            &regex,
+            &substitution,
+            &files,
+            vec![dir.0.to_string_lossy().into_owned()],
+        )
+    }
+
+    #[test]
+    fn apply_writes_and_marks_files() {
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        write(&dir, "b.txt", "foo foo\n");
+        let mut plan = plan_for(&dir, &["a.txt", "b.txt"]);
+        assert_eq!(apply(&mut plan).unwrap(), 2);
+        assert!(plan.applied);
+        assert!(plan.files.iter().all(|f| f.applied));
+        assert_eq!(fs::read_to_string(dir.0.join("a.txt")).unwrap(), "bar\n");
+        assert_eq!(
+            fs::read_to_string(dir.0.join("b.txt")).unwrap(),
+            "bar bar\n"
+        );
+    }
+
+    #[test]
+    fn apply_refuses_stale_file_before_any_write() {
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        write(&dir, "b.txt", "foo\n");
+        let mut plan = plan_for(&dir, &["a.txt", "b.txt"]);
+        // Concurrent modification after analysis.
+        fs::write(dir.0.join("b.txt"), "changed\n").unwrap();
+        let err = apply(&mut plan).unwrap_err();
+        assert!(err.to_string().contains("stale"), "{err}");
+        // All-or-refuse: a.txt must not have been written.
+        assert_eq!(fs::read_to_string(dir.0.join("a.txt")).unwrap(), "foo\n");
+        assert!(plan.files.iter().all(|f| !f.applied));
+        assert!(!plan.applied);
+    }
+
+    #[test]
+    fn apply_refuses_file_outside_roots() {
+        let dir = TempDir::new();
+        let other = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        let outside = write(&other, "out.txt", "foo\n");
+        let regex = Regex::new("foo").unwrap();
+        let substitution = Substitution::new("bar".to_string(), false);
+        let file = SourceFile {
+            path: outside.clone(),
+            contents: "foo\n".to_string(),
+        };
+        // Roots claim only `dir`, but the plan targets a file in `other`.
+        let mut plan = build_text_plan(
+            "text",
+            &regex,
+            &substitution,
+            std::slice::from_ref(&file),
+            vec![dir.0.to_string_lossy().into_owned()],
+        );
+        // validate() rejects .. components but not this absolute path; the
+        // containment gate in apply() is what must stop it.
+        let err = apply(&mut plan).unwrap_err();
+        assert!(err.to_string().contains("outside the declared roots"), "{err}");
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "foo\n");
+        let _ = dir;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_refuses_symlink_target() {
+        let dir = TempDir::new();
+        let real = write(&dir, "real.txt", "foo\n");
+        let link = dir.0.join("link.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let regex = Regex::new("foo").unwrap();
+        let substitution = Substitution::new("bar".to_string(), false);
+        let file = SourceFile {
+            path: link.clone(),
+            contents: "foo\n".to_string(),
+        };
+        let mut plan = build_text_plan(
+            "text",
+            &regex,
+            &substitution,
+            std::slice::from_ref(&file),
+            vec![dir.0.to_string_lossy().into_owned()],
+        );
+        let err = apply(&mut plan).unwrap_err();
+        assert!(err.to_string().contains("unsafe file types"), "{err}");
+        assert_eq!(fs::read_to_string(&real).unwrap(), "foo\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_reports_partial_failure_per_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        let locked = write(&dir, "b.txt", "foo\n");
+        let mut permissions = fs::metadata(&locked).unwrap().permissions();
+        permissions.set_mode(0o444);
+        fs::set_permissions(&locked, permissions).unwrap();
+
+        let mut plan = plan_for(&dir, &["a.txt", "b.txt"]);
+        let err = apply(&mut plan).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("apply incomplete"), "{message}");
+        assert!(message.contains("a.txt"), "{message}");
+        assert!(message.contains("b.txt"), "{message}");
+        // a.txt applied, b.txt did not; per-file flags tell the truth.
+        assert_eq!(fs::read_to_string(dir.0.join("a.txt")).unwrap(), "bar\n");
+        assert_eq!(fs::read_to_string(&locked).unwrap(), "foo\n");
+        let a = plan.files.iter().find(|f| f.path.ends_with("a.txt")).unwrap();
+        let b = plan.files.iter().find(|f| f.path.ends_with("b.txt")).unwrap();
+        assert!(a.applied);
+        assert!(!b.applied);
+        assert!(!plan.applied);
+        // Restore so TempDir cleanup is not affected on strict filesystems.
+        let mut permissions = fs::metadata(&locked).unwrap().permissions();
+        permissions.set_mode(0o644);
+        fs::set_permissions(&locked, permissions).unwrap();
     }
 }

@@ -90,6 +90,17 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Preflight whole operations; stage per-file writes; preserve bytes/newlines/metadata under an explicit policy; detect stale snapshots, links and root escapes. Implement safe failure reporting and recovery without Git resets or overwriting concurrent changes. Specify non-global atomicity and residual TOCTOU limits.
 - **Accept:** Read-only preview and all-or-refuse validation tests pass; injected failures, cancellation, concurrent changes and permissions have accurate outcomes. A semantic rename cannot accept an arbitrary subset of required references. No claim of atomicity across multiple ordinary files.
 - **Effort:** L
+- **Done:** `Fastermod::save` now guards with `symlink_metadata` (refuses
+  symlinks and non-regular files on every write path). `plan::apply`
+  preflights root containment (canonicalized roots), file type and
+  staleness before any write; writes attempt every file, set per-file
+  `applied`, and report applied/failed paths on partial failure. JSON
+  gains per-edit `applied` and an `apply-failed` diagnostic emitted even
+  when apply fails. Policy documented in `docs/refactor/apply-safety.md`:
+  per-file atomicity only, residual TOCTOU window, hardlink rename
+  semantics, permission preservation, xattr/ACL limitation, cancellation
+  leftovers, no git rollback. Tests: stale-refusal, root-escape,
+  symlink-refusal, partial-failure reporting (all in `plan.rs`).
 
 ### REFAC-5 · P1 · Prove reusable syntax and resolution foundations
 

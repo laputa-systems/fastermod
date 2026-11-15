@@ -79,9 +79,10 @@ pub(crate) fn plan_json_report(plan: &EditPlan) -> String {
             out.push_str("\"path\":");
             out.push_str(&json_path(&file.path));
             out.push_str(&format!(
-                ",\"byte_start\":{},\"byte_end\":{},\"anchor\":{{\"line\":{},\"column\":{},\"excerpt\":{}}},\"kind\":{}",
+                ",\"byte_start\":{},\"byte_end\":{},\"applied\":{},\"anchor\":{{\"line\":{},\"column\":{},\"excerpt\":{}}},\"kind\":{}",
                 edit.byte_start,
                 edit.byte_end,
+                file.applied,
                 edit.anchor.line,
                 edit.anchor.column,
                 json_string(&edit.anchor.excerpt),

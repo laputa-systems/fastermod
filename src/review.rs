@@ -126,16 +126,32 @@ impl Fastermod {
     }
 
     pub(crate) fn save(&mut self, path: &Path, text: &str) -> Result<()> {
-        if let Ok(metadata) = fs::metadata(path)
-            && metadata.permissions().readonly()
-        {
-            return Err(error_with_context(
-                format!("Unable to write to {:?}", path),
-                std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "permission denied",
-                ),
-            ));
+        // symlink_metadata so a symlink is rejected rather than followed:
+        // discovery never yields links, and this is the last-line guard for
+        // every write path (interactive, fast, plan apply).
+        if let Ok(metadata) = fs::symlink_metadata(path) {
+            let file_type = metadata.file_type();
+            if file_type.is_symlink() {
+                return Err(error_with_context(
+                    format!("Unable to write to {:?}", path),
+                    "refusing to write through a symbolic link",
+                ));
+            }
+            if !file_type.is_file() {
+                return Err(error_with_context(
+                    format!("Unable to write to {:?}", path),
+                    "refusing to write to a non-regular file",
+                ));
+            }
+            if metadata.permissions().readonly() {
+                return Err(error_with_context(
+                    format!("Unable to write to {:?}", path),
+                    std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "permission denied",
+                    ),
+                ));
+            }
         }
         static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
         let parent = path

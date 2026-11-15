@@ -52,10 +52,25 @@ fn run_text_pipeline(
     let files_edited = plan.coverage.files_edited;
 
     if json {
-        if apply {
-            plan::apply(&mut plan)?;
+        let apply_result = if apply {
+            Some(plan::apply(&mut plan))
+        } else {
+            None
+        };
+        if let Some(Err(e)) = &apply_result {
+            plan.diagnostics.push(plan::Diagnostic {
+                severity: plan::Severity::Error,
+                code: "apply-failed".to_string(),
+                message: e.to_string(),
+                path: None,
+            });
         }
+        // The report is emitted even on apply failure: `applied` and the
+        // per-edit `applied` flags report exactly which files were written.
         print!("{}", plan_json_report(&plan));
+        if let Some(result) = apply_result {
+            result?;
+        }
         return Ok(if check && files_edited > 0 && !plan.applied {
             1
         } else {
