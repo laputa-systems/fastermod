@@ -86,6 +86,7 @@ mod bind_scala;
 mod cli;
 mod diff;
 mod discovery;
+mod embed;
 mod engine;
 mod lang;
 mod output;

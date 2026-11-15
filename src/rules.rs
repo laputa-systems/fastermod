@@ -3,7 +3,7 @@
 //! data-only TOML — no code, no includes, no eval.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use grep::regex::RegexMatcherBuilder;
 
@@ -211,11 +211,19 @@ pub(crate) fn run_rules(
     }
 
     // Residual review aid: spellings that ops targeted but that still appear
-    // in final contents are reported, never silently accepted.
+    // in final contents are reported, never silently accepted. The rules
+    // file itself is configuration, not source: its `old`/`new` spellings
+    // are excluded even when it parses as a registered language.
+    let rules_norm = rules_path.trim_start_matches("./");
+    let is_rules_file = |p: &Path| {
+        let s = p.to_string_lossy();
+        let s = s.trim_start_matches("./");
+        s == rules_norm || s.ends_with(&format!("/{rules_norm}"))
+    };
     for name in &residual_names {
         let mut hits = 0usize;
         for (p, c) in &current {
-            if !non_language.contains(p) {
+            if !non_language.contains(p) && !is_rules_file(p) {
                 hits += c.matches(name.as_str()).count();
             }
         }

@@ -10,12 +10,7 @@
     },
     "files_edited": 1,
     "files_scanned": 2,
-    "files_skipped": [
-      {
-        "path": "./rules.toml",
-        "reason": "op 0: no registered language matches this file"
-      }
-    ],
+    "files_skipped": [],
     "read_set": [
       {
         "hash": 10548409712564765261,
@@ -32,6 +27,12 @@
     "unresolved": []
   },
   "diagnostics": [
+    {
+      "code": "unsupported-operation",
+      "message": "--rename is not supported for toml",
+      "path": "./rules.toml",
+      "severity": "info"
+    },
     {
       "code": "workspace-rename",
       "message": "workspace rename of \"helper\" -> \"renamed\" across 1 analyzed file(s); files outside the discovery roots are not analyzed",

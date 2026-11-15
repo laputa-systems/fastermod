@@ -38,6 +38,10 @@ tree-sitter-fortran = "0.6.0"
 tree-sitter-matlab = "1.3.3"
 tree-sitter-vb-dotnet = "0.1.0"
 
+tree-sitter-toml-updated = "0.20.0"
+tree-sitter-scss = "1.0.0"
+tree-sitter-postgres = "19.0.0-beta.4.1"
+
 [dev-dependencies]
 rustybench = "0.5"
 

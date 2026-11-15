@@ -63,6 +63,10 @@ pub(crate) const GRAMMAR_BUNDLE: &str = "ast-grep-language 0.51.2 + crates.io tr
 pub(crate) enum Grammar {
     AstGrep(SupportLang),
     Raw(LanguageFn),
+    /// Grammar crates that only expose `language() -> tree_sitter::Language`
+    /// (no `LanguageFn` constant). Stored as a factory so `LangSpec` rows
+    /// stay const-constructible; the language handle is rebuilt per use.
+    Factory(fn() -> tree_sitter::Language),
 }
 
 impl Grammar {
@@ -70,7 +74,7 @@ impl Grammar {
     pub(crate) fn support_lang(&self) -> Option<SupportLang> {
         match self {
             Grammar::AstGrep(l) => Some(*l),
-            Grammar::Raw(_) => None,
+            Grammar::Raw(_) | Grammar::Factory(_) => None,
         }
     }
 
@@ -79,6 +83,7 @@ impl Grammar {
         match self {
             Grammar::AstGrep(l) => l.get_ts_language(),
             Grammar::Raw(f) => (*f).into(),
+            Grammar::Factory(f) => f(),
         }
     }
 }
@@ -87,14 +92,14 @@ impl AstGrepLanguage for Grammar {
     fn kind_to_id(&self, kind: &str) -> u16 {
         match self {
             Grammar::AstGrep(l) => l.kind_to_id(kind),
-            Grammar::Raw(_) => self.ts_language().id_for_node_kind(kind, true),
+            Grammar::Raw(_) | Grammar::Factory(_) => self.ts_language().id_for_node_kind(kind, true),
         }
     }
 
     fn field_to_id(&self, field: &str) -> Option<u16> {
         match self {
             Grammar::AstGrep(l) => l.field_to_id(field),
-            Grammar::Raw(_) => self
+            Grammar::Raw(_) | Grammar::Factory(_) => self
                 .ts_language()
                 .field_id_for_name(field)
                 .map(|id| id.get()),
@@ -104,28 +109,28 @@ impl AstGrepLanguage for Grammar {
     fn meta_var_char(&self) -> char {
         match self {
             Grammar::AstGrep(l) => l.meta_var_char(),
-            Grammar::Raw(_) => '$',
+            Grammar::Raw(_) | Grammar::Factory(_) => '$',
         }
     }
 
     fn expando_char(&self) -> char {
         match self {
             Grammar::AstGrep(l) => l.expando_char(),
-            Grammar::Raw(_) => '$',
+            Grammar::Raw(_) | Grammar::Factory(_) => '$',
         }
     }
 
     fn extract_meta_var(&self, source: &str) -> Option<MetaVariable> {
         match self {
             Grammar::AstGrep(l) => l.extract_meta_var(source),
-            Grammar::Raw(_) => DollarLang.extract_meta_var(source),
+            Grammar::Raw(_) | Grammar::Factory(_) => DollarLang.extract_meta_var(source),
         }
     }
 
     fn pre_process_pattern<'q>(&self, query: &'q str) -> std::borrow::Cow<'q, str> {
         match self {
             Grammar::AstGrep(l) => l.pre_process_pattern(query),
-            Grammar::Raw(_) => std::borrow::Cow::Borrowed(query),
+            Grammar::Raw(_) | Grammar::Factory(_) => std::borrow::Cow::Borrowed(query),
         }
     }
 
@@ -568,7 +573,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     // variables. binding stays None pending asset-specific analyzers.
     LangSpec {
         id: "css",
-        extensions: &["css", "scss"],
+        extensions: &["css"],
         grammar: Grammar::AstGrep(SupportLang::Css),
         ident: true,
         rewrite: true,
@@ -662,6 +667,42 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         limitations: "contract inheritance and modifier dispatch are not modeled for rename",
         fixtures: &["ident-solidity", "rewrite-solidity"],
     },
+    LangSpec {
+        id: "scss",
+        extensions: &["scss"],
+        grammar: Grammar::Factory(tree_sitter_scss::language),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &["property_name", "class_name"],
+        license: "MIT (tree-sitter-scss)",
+        limitations: "scss nesting/mixins parse under the dedicated scss grammar; variables are $-prefixed and not identifier tokens",
+        fixtures: &["ident-scss"],
+    },
+    LangSpec {
+        id: "toml",
+        extensions: &["toml"],
+        grammar: Grammar::Factory(tree_sitter_toml_updated::language),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &["bare_key"],
+        license: "MIT (tree-sitter-toml)",
+        limitations: "bare keys are the only identifier tokens; table/array structure is syntax-only; dotted keys rename per-segment",
+        fixtures: &["ident-toml"],
+    },
+    LangSpec {
+        id: "postgresql",
+        extensions: &["psql", "pgsql"],
+        grammar: Grammar::Raw(tree_sitter_postgres::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "BSD-3-Clause (tree-sitter-postgres)",
+        limitations: "postgres dialect only; .sql files require --lang; schema binding is not modeled",
+        fixtures: &["ident-postgresql"],
+    },
 ];
 
 /// Resolve a --lang value (id, alias or SupportLang name) to a spec.
@@ -693,6 +734,7 @@ pub(crate) fn detect(path: &Path, overrides: &[String]) -> Option<&'static LangS
 pub(crate) fn is_identifier_kind(kind: &str) -> bool {
     kind == "identifier" || kind.ends_with("_identifier")
 }
+
 
 
 

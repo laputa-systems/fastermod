@@ -7,6 +7,7 @@ use ast_grep_core::matcher::Pattern;
 use ast_grep_core::tree_sitter::{LanguageExt, StrDoc};
 use ast_grep_core::AstGrep;
 
+use crate::embed;
 use crate::lang::{self, LangSpec};
 use crate::plan::{self, Anchor, EditKind, PlannedFile, SpanEdit, content_hash};
 use crate::source::SourceFile;
@@ -96,45 +97,84 @@ pub(crate) fn run_ident(
     }
     let mut run = empty_run();
     for file in files {
-        let Some(spec) = lang::detect(&file.path, lang_overrides) else {
+        let mut edits = Vec::new();
+        let mut host_done = false;
+        if let Some(spec) = lang::detect(&file.path, lang_overrides) {
+            host_done = true;
+            if !spec.ident {
+                run.diagnostics.push(plan::Diagnostic {
+                    severity: plan::Severity::Info,
+                    code: "unsupported-operation".to_string(),
+                    message: format!("--ident is not supported for {}", spec.id),
+                    path: Some(file.path.clone()),
+                });
+            } else if let Some(root) = parse(spec, &file.contents) {
+                for node in root.root().dfs() {
+                    let kind = node.kind();
+                    if (lang::is_identifier_kind(kind.as_ref())
+                        || spec.ident_kinds.contains(&kind.as_ref()))
+                        && node.text().as_ref() == old
+                    {
+                        let range = node.range();
+                        edits.push(SpanEdit {
+                            byte_start: range.start,
+                            byte_end: range.end,
+                            replacement: new.to_string(),
+                            kind: EditKind::Ident,
+                            anchor: anchor_for(&file.contents, range.start),
+                        });
+                    }
+                }
+            } else {
+                run.skipped.push(plan::SkippedFile {
+                    path: file.path.clone(),
+                    reason: format!("{} parse contains syntax errors", spec.id),
+                });
+            }
+        }
+        // Embedded regions (HTML/Vue/Svelte script+style, Markdown fences)
+        // are edited with the inner language's grammar; offsets map back
+        // into host bytes so delimiters are preserved.
+        for region in embed::regions(&file.path, &file.contents) {
+            if !region.spec.ident {
+                continue;
+            }
+            let sub = &file.contents[region.range.clone()];
+            let Some(root) = parse(region.spec, sub) else {
+                run.diagnostics.push(plan::Diagnostic {
+                    severity: plan::Severity::Info,
+                    code: "embedded-parse".to_string(),
+                    message: format!(
+                        "embedded {} region at byte {} failed to parse",
+                        region.spec.id, region.range.start
+                    ),
+                    path: Some(file.path.clone()),
+                });
+                continue;
+            };
+            for node in root.root().dfs() {
+                let kind = node.kind();
+                if (lang::is_identifier_kind(kind.as_ref())
+                    || region.spec.ident_kinds.contains(&kind.as_ref()))
+                    && node.text().as_ref() == old
+                {
+                    let r = node.range();
+                    let abs = region.range.start + r.start;
+                    edits.push(SpanEdit {
+                        byte_start: abs,
+                        byte_end: region.range.start + r.end,
+                        replacement: new.to_string(),
+                        kind: EditKind::Ident,
+                        anchor: anchor_for(&file.contents, abs),
+                    });
+                }
+            }
+        }
+        if !host_done && edits.is_empty() {
             run.skipped.push(plan::SkippedFile {
                 path: file.path.clone(),
                 reason: "no registered language matches this file".to_string(),
             });
-            continue;
-        };
-        if !spec.ident {
-            run.diagnostics.push(plan::Diagnostic {
-                severity: plan::Severity::Info,
-                code: "unsupported-operation".to_string(),
-                message: format!("--ident is not supported for {}", spec.id),
-                path: Some(file.path.clone()),
-            });
-            continue;
-        }
-        let Some(root) = parse(spec, &file.contents) else {
-            run.skipped.push(plan::SkippedFile {
-                path: file.path.clone(),
-                reason: format!("{} parse contains syntax errors", spec.id),
-            });
-            continue;
-        };
-        let mut edits = Vec::new();
-        for node in root.root().dfs() {
-            let kind = node.kind();
-            if (lang::is_identifier_kind(kind.as_ref())
-                || spec.ident_kinds.contains(&kind.as_ref()))
-                && node.text().as_ref() == old
-            {
-                let range = node.range();
-                edits.push(SpanEdit {
-                    byte_start: range.start,
-                    byte_end: range.end,
-                    replacement: new.to_string(),
-                    kind: EditKind::Ident,
-                    anchor: anchor_for(&file.contents, range.start),
-                });
-            }
         }
         if let Some(planned) = finish_file(file, edits) {
             run.files.push(planned);
@@ -169,52 +209,16 @@ pub(crate) fn run_rewrite(
             "invalid --rewrite pattern: {first}"
         )));
     }
-    let mut run = empty_run();
-    for file in files {
-        let Some(spec) = lang::detect(&file.path, lang_overrides) else {
-            run.skipped.push(plan::SkippedFile {
-                path: file.path.clone(),
-                reason: "no registered language matches this file".to_string(),
-            });
-            continue;
-        };
-        if !spec.rewrite {
-            run.diagnostics.push(plan::Diagnostic {
-                severity: plan::Severity::Info,
-                code: "unsupported-operation".to_string(),
-                message: format!("--rewrite is not supported for {}", spec.id),
-                path: Some(file.path.clone()),
-            });
-            continue;
-        }
-        let Some(root) = parse(spec, &file.contents) else {
-            run.skipped.push(plan::SkippedFile {
-                path: file.path.clone(),
-                reason: format!("{} parse contains syntax errors", spec.id),
-            });
-            continue;
-        };
-        let Some(result) = compiled
-            .iter()
-            .find(|(s, _)| s.id == spec.id)
-            .map(|(_, r)| r)
-        else {
-            continue;
-        };
-        let pattern = match result {
-            Ok(p) => p,
-            Err(e) => {
-                run.skipped.push(plan::SkippedFile {
-                    path: file.path.clone(),
-                    reason: format!(
-                        "--rewrite pattern does not parse as {}: {e}",
-                        spec.id
-                    ),
-                });
-                continue;
-            }
-        };
-        let mut edits = Vec::new();
+    // Collect rewrite edits for one parsed root; `offset` maps positions
+    // from a substring (embedded region) into host bytes.
+    fn rewrite_edits(
+        root: &AstGrep<StrDoc<crate::lang::Grammar>>,
+        pattern: &Pattern,
+        replacement: &str,
+        file: &SourceFile,
+        offset: usize,
+        edits: &mut Vec<SpanEdit>,
+    ) -> std::result::Result<(), Failure> {
         for edit in root.root().replace_all(pattern, replacement) {
             let text = String::from_utf8(edit.inserted_text).map_err(|_| {
                 Failure::analysis(format!(
@@ -222,12 +226,97 @@ pub(crate) fn run_rewrite(
                     file.path.display()
                 ))
             })?;
+            let pos = offset + edit.position;
             edits.push(SpanEdit {
-                byte_start: edit.position,
-                byte_end: edit.position + edit.deleted_length,
+                byte_start: pos,
+                byte_end: offset + edit.position + edit.deleted_length,
                 replacement: text,
                 kind: EditKind::Rewrite,
-                anchor: anchor_for(&file.contents, edit.position),
+                anchor: anchor_for(&file.contents, pos),
+            });
+        }
+        Ok(())
+    }
+
+    let mut run = empty_run();
+    for file in files {
+        let mut edits = Vec::new();
+        let mut host_done = false;
+        if let Some(spec) = lang::detect(&file.path, lang_overrides) {
+            host_done = true;
+            if !spec.rewrite {
+                run.diagnostics.push(plan::Diagnostic {
+                    severity: plan::Severity::Info,
+                    code: "unsupported-operation".to_string(),
+                    message: format!("--rewrite is not supported for {}", spec.id),
+                    path: Some(file.path.clone()),
+                });
+            } else {
+                match compiled.iter().find(|(s, _)| s.id == spec.id).map(|(_, r)| r) {
+                    Some(Ok(pattern)) => {
+                        if let Some(root) = parse(spec, &file.contents) {
+                            rewrite_edits(&root, pattern, replacement, file, 0, &mut edits)?;
+                        } else {
+                            run.skipped.push(plan::SkippedFile {
+                                path: file.path.clone(),
+                                reason: format!("{} parse contains syntax errors", spec.id),
+                            });
+                        }
+                    }
+                    Some(Err(e)) => {
+                        run.skipped.push(plan::SkippedFile {
+                            path: file.path.clone(),
+                            reason: format!(
+                                "--rewrite pattern does not parse as {}: {e}",
+                                spec.id
+                            ),
+                        });
+                    }
+                    None => {}
+                }
+            }
+        }
+        // Embedded regions use the inner language's compiled pattern.
+        for region in embed::regions(&file.path, &file.contents) {
+            if !region.spec.rewrite {
+                continue;
+            }
+            let Some(pattern) = compiled
+                .iter()
+                .find(|(s, _)| s.id == region.spec.id)
+                .and_then(|(_, r)| r.as_ref().ok())
+            else {
+                continue;
+            };
+            let sub = &file.contents[region.range.clone()];
+            match parse(region.spec, sub) {
+                Some(root) => {
+                    rewrite_edits(
+                        &root,
+                        pattern,
+                        replacement,
+                        file,
+                        region.range.start,
+                        &mut edits,
+                    )?;
+                }
+                None => {
+                    run.diagnostics.push(plan::Diagnostic {
+                        severity: plan::Severity::Info,
+                        code: "embedded-parse".to_string(),
+                        message: format!(
+                            "embedded {} region at byte {} failed to parse",
+                            region.spec.id, region.range.start
+                        ),
+                        path: Some(file.path.clone()),
+                    });
+                }
+            }
+        }
+        if !host_done && edits.is_empty() {
+            run.skipped.push(plan::SkippedFile {
+                path: file.path.clone(),
+                reason: "no registered language matches this file".to_string(),
             });
         }
         if let Some(planned) = finish_file(file, edits) {
