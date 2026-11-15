@@ -49,6 +49,37 @@ changed paths; it is useful with `--accept-all` in scripts. Use `-F` or
 `--fixed-strings` when the search text should be treated literally, and
 `--help` for case, multiline, extension, glob, hidden-file, and ignore options.
 
+## Syntax-aware and semantic modes
+
+Beyond text substitution, fastermod offers syntax-aware edits and
+binding-aware rename. Every invocation re-analyzes sources in memory;
+there is no daemon, index, watcher, or persistent state.
+
+- `--ident OLD NEW`: replace every identifier token spelled `OLD`.
+  Syntactic only — it does not resolve bindings.
+- `--rewrite PATTERN REPLACEMENT`: ast-grep structural rewrite. `PATTERN`
+  uses `$VAR`/`$$$ARGS` metavariables; `REPLACEMENT` is an ast-grep
+  template. Still a syntax operation, not a rename.
+- `--rename OLD NEW`: rename one resolved binding and its references.
+  Fails closed: if any relevant reference cannot be resolved (dynamic
+  dispatch, unknown receiver, ambiguous target), the rename is refused
+  rather than guessing. Use `--at FILE:LINE:COL` to select among
+  same-named bindings. Coverage is per-language; `--languages` prints
+  the capability matrix with exact support and limitations.
+- `--rules FILE`: run an ordered list of data-only TOML `[[op]]` tables
+  (`ident`, `rewrite`, `rename`, optional `lang`) over the file set in
+  memory. Sequential ops are swap/cycle safe.
+- `--plan FILE`: compute edits and write a versioned JSON plan without
+  touching sources. `--apply-plan FILE` later validates fingerprints
+  (edited files, read-set, discovery, config) and applies atomically;
+  stale plans are rejected.
+
+Safety boundaries: edits are planned as byte spans with expected content
+hashes; apply refuses symlinks, non-regular files, path escapes, and
+stale inputs. Unsupported constructs produce explicit diagnostics —
+never silent text fallbacks. `--lang LANG` forces a grammar for
+extension-ambiguous files (`.m`, `.sql`, signature files).
+
 ## Help and license
 
 Report problems on the [issue tracker](https://github.com/laputa-systems/fastermod/issues).

@@ -243,7 +243,7 @@ pub(crate) fn run_rules(
     let mut files_out: Vec<PlannedFile> = Vec::new();
     for (path, before) in &originals {
         let after = &current[path];
-        let edits: Vec<SpanEdit> = collapse_edit(before, after, EditKind::Rewrite)
+        let edits: Vec<SpanEdit> = collapse_edit(before, after, EditKind::Mixed)
             .into_iter()
             .collect();
         if edits.is_empty() {

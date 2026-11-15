@@ -54,7 +54,7 @@
           },
           "byte_end": 39,
           "byte_start": 4,
-          "kind": "rewrite",
+          "kind": "mixed",
           "replacement": "renamed(x):\n    return x\n\ny = renamed"
         }
       ],

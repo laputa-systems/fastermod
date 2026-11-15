@@ -24,6 +24,9 @@ pub(crate) enum EditKind {
     Ident,
     Rewrite,
     RenameReference,
+    /// A collapsed whole-file diff produced by a multi-op `--rules` run;
+    /// per-op kinds are not recoverable from the merged span.
+    Mixed,
 }
 
 impl EditKind {
@@ -33,6 +36,7 @@ impl EditKind {
             EditKind::Ident => "ident",
             EditKind::Rewrite => "rewrite",
             EditKind::RenameReference => "rename-reference",
+            EditKind::Mixed => "mixed",
         }
     }
 }
@@ -1034,6 +1038,7 @@ fn edit_from(v: &serde_json::Value) -> std::result::Result<SpanEdit, String> {
         "ident" => EditKind::Ident,
         "rewrite" => EditKind::Rewrite,
         "rename-reference" => EditKind::RenameReference,
+        "mixed" => EditKind::Mixed,
         other => return Err(format!("unknown edit kind {other:?}")),
     };
     let anchor = v
