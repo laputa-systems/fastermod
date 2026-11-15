@@ -6,7 +6,6 @@
 use ast_grep_core::matcher::Pattern;
 use ast_grep_core::tree_sitter::{LanguageExt, StrDoc};
 use ast_grep_core::AstGrep;
-use ast_grep_language::SupportLang;
 
 use crate::lang::{self, LangSpec};
 use crate::plan::{self, Anchor, EditKind, PlannedFile, SpanEdit, content_hash};
@@ -43,8 +42,8 @@ fn anchor_for(contents: &str, byte_start: usize) -> Anchor {
 
 /// Parse `contents` with `spec`'s grammar. Returns the ast-grep root, or
 /// `None` when the tree has syntax errors (the caller records a skip).
-fn parse(spec: &LangSpec, contents: &str) -> Option<AstGrep<StrDoc<SupportLang>>> {
-    let root = spec.lang.ast_grep(contents);
+fn parse(spec: &LangSpec, contents: &str) -> Option<AstGrep<StrDoc<crate::lang::Grammar>>> {
+    let root = spec.grammar.ast_grep(contents);
     if root.root().get_inner_node().has_error() {
         return None;
     }
@@ -160,7 +159,7 @@ pub(crate) fn run_rewrite(
     let compiled: Vec<(&'static LangSpec, std::result::Result<Pattern, String>)> = lang::LANGUAGES
         .iter()
         .map(|spec| {
-            let result = Pattern::try_new(pattern_src, spec.lang).map_err(|e| e.to_string());
+            let result = Pattern::try_new(pattern_src, spec.grammar).map_err(|e| e.to_string());
             (spec, result)
         })
         .collect();

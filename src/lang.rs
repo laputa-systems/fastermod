@@ -6,7 +6,12 @@
 use std::path::Path;
 use std::str::FromStr;
 
+use ast_grep_core::matcher::PatternBuilder;
+use ast_grep_core::meta_var::MetaVariable;
+use ast_grep_core::tree_sitter::{LanguageExt, StrDoc, TSLanguage};
+use ast_grep_core::{Language as AstGrepLanguage, Pattern, PatternError};
 use ast_grep_language::SupportLang;
+use tree_sitter_language::LanguageFn;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BindingSupport {
@@ -24,7 +29,7 @@ pub(crate) struct LangSpec {
     /// File extensions (no dot) that select this language.
     pub extensions: &'static [&'static str],
     /// ast-grep/tree-sitter grammar.
-    pub lang: SupportLang,
+    pub grammar: Grammar,
     /// --ident supported.
     pub ident: bool,
     /// Extra node kinds treated as identifier tokens for --ident
@@ -44,15 +49,123 @@ pub(crate) struct LangSpec {
 
 /// Grammar bundle version recorded in capability output. Keep in sync with
 /// the `ast-grep-language` dependency in Cargo.toml — it is the source of
-/// the bundled tree-sitter grammar revisions.
-pub(crate) const GRAMMAR_BUNDLE: &str = "ast-grep-language 0.51.2";
+/// the bundled tree-sitter grammar revisions. Wave-C languages may add
+/// standalone `tree-sitter-*` crates published to the stuff registry.
+pub(crate) const GRAMMAR_BUNDLE: &str = "ast-grep-language 0.51.2 + crates.io tree-sitter grammars";
+
+/// A tree-sitter grammar usable by both ast-grep pattern matching and
+/// direct tree-sitter traversal. `AstGrep` delegates every language
+/// behavior (meta-var chars, pattern preprocessing, kind ids) to the
+/// bundled `SupportLang`; `Raw` wraps a standalone `tree-sitter-*`
+/// crate's `LANGUAGE` constant for grammars ast-grep-language does not
+/// bundle.
+#[derive(Clone, Copy)]
+pub(crate) enum Grammar {
+    AstGrep(SupportLang),
+    Raw(LanguageFn),
+}
+
+impl Grammar {
+    /// The `SupportLang` behind an ast-grep-bundled grammar, if any.
+    pub(crate) fn support_lang(&self) -> Option<SupportLang> {
+        match self {
+            Grammar::AstGrep(l) => Some(*l),
+            Grammar::Raw(_) => None,
+        }
+    }
+
+    /// tree-sitter `Language` handle for direct parser use.
+    pub(crate) fn ts_language(&self) -> tree_sitter::Language {
+        match self {
+            Grammar::AstGrep(l) => l.get_ts_language(),
+            Grammar::Raw(f) => (*f).into(),
+        }
+    }
+}
+
+impl AstGrepLanguage for Grammar {
+    fn kind_to_id(&self, kind: &str) -> u16 {
+        match self {
+            Grammar::AstGrep(l) => l.kind_to_id(kind),
+            Grammar::Raw(_) => self.ts_language().id_for_node_kind(kind, true),
+        }
+    }
+
+    fn field_to_id(&self, field: &str) -> Option<u16> {
+        match self {
+            Grammar::AstGrep(l) => l.field_to_id(field),
+            Grammar::Raw(_) => self
+                .ts_language()
+                .field_id_for_name(field)
+                .map(|id| id.get()),
+        }
+    }
+
+    fn meta_var_char(&self) -> char {
+        match self {
+            Grammar::AstGrep(l) => l.meta_var_char(),
+            Grammar::Raw(_) => '$',
+        }
+    }
+
+    fn expando_char(&self) -> char {
+        match self {
+            Grammar::AstGrep(l) => l.expando_char(),
+            Grammar::Raw(_) => '$',
+        }
+    }
+
+    fn extract_meta_var(&self, source: &str) -> Option<MetaVariable> {
+        match self {
+            Grammar::AstGrep(l) => l.extract_meta_var(source),
+            Grammar::Raw(_) => DollarLang.extract_meta_var(source),
+        }
+    }
+
+    fn pre_process_pattern<'q>(&self, query: &'q str) -> std::borrow::Cow<'q, str> {
+        match self {
+            Grammar::AstGrep(l) => l.pre_process_pattern(query),
+            Grammar::Raw(_) => std::borrow::Cow::Borrowed(query),
+        }
+    }
+
+    fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {
+        builder.build(|src| StrDoc::try_new(src, *self))
+    }
+}
+
+impl LanguageExt for Grammar {
+    fn get_ts_language(&self) -> TSLanguage {
+        self.ts_language()
+    }
+}
+
+/// Meta-variable extraction for `Raw` grammars: ast-grep's default
+/// implementation only needs `expando_char`, which is `$` for every
+/// grammar we wrap. The remaining `Language` methods are unreachable
+/// because `DollarLang` is never used to parse or build patterns.
+#[derive(Clone)]
+struct DollarLang;
+
+impl AstGrepLanguage for DollarLang {
+    fn kind_to_id(&self, _kind: &str) -> u16 {
+        unreachable!()
+    }
+    fn field_to_id(&self, _field: &str) -> Option<u16> {
+        unreachable!()
+    }
+    fn build_pattern(&self, _builder: &PatternBuilder) -> Result<Pattern, PatternError> {
+        unreachable!()
+    }
+}
+
 
 /// Wave A languages. Order is display order.
 pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "rust",
         extensions: &["rs"],
-        lang: SupportLang::Rust,
+        grammar: Grammar::AstGrep(SupportLang::Rust),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Workspace,
@@ -64,7 +177,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "python",
         extensions: &["py", "pyi"],
-        lang: SupportLang::Python,
+        grammar: Grammar::AstGrep(SupportLang::Python),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Workspace,
@@ -76,7 +189,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "javascript",
         extensions: &["js", "jsx", "mjs", "cjs"],
-        lang: SupportLang::JavaScript,
+        grammar: Grammar::AstGrep(SupportLang::JavaScript),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Workspace,
@@ -88,7 +201,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "typescript",
         extensions: &["ts", "cts", "mts"],
-        lang: SupportLang::TypeScript,
+        grammar: Grammar::AstGrep(SupportLang::TypeScript),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Workspace,
@@ -100,7 +213,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "tsx",
         extensions: &["tsx"],
-        lang: SupportLang::Tsx,
+        grammar: Grammar::AstGrep(SupportLang::Tsx),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Workspace,
@@ -114,7 +227,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "go",
         extensions: &["go"],
-        lang: SupportLang::Go,
+        grammar: Grammar::AstGrep(SupportLang::Go),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -126,7 +239,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "c",
         extensions: &["c", "h"],
-        lang: SupportLang::C,
+        grammar: Grammar::AstGrep(SupportLang::C),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -138,7 +251,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "cpp",
         extensions: &["cc", "cpp", "cxx", "hpp", "hh", "h++", "cu", "ino"],
-        lang: SupportLang::Cpp,
+        grammar: Grammar::AstGrep(SupportLang::Cpp),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -150,7 +263,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "java",
         extensions: &["java"],
-        lang: SupportLang::Java,
+        grammar: Grammar::AstGrep(SupportLang::Java),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -162,7 +275,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "csharp",
         extensions: &["cs"],
-        lang: SupportLang::CSharp,
+        grammar: Grammar::AstGrep(SupportLang::CSharp),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -174,7 +287,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "kotlin",
         extensions: &["kt", "kts"],
-        lang: SupportLang::Kotlin,
+        grammar: Grammar::AstGrep(SupportLang::Kotlin),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -186,7 +299,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "swift",
         extensions: &["swift"],
-        lang: SupportLang::Swift,
+        grammar: Grammar::AstGrep(SupportLang::Swift),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -198,7 +311,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "php",
         extensions: &["php", "phtml"],
-        lang: SupportLang::Php,
+        grammar: Grammar::AstGrep(SupportLang::Php),
         ident: false,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -210,7 +323,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "ruby",
         extensions: &["rb"],
-        lang: SupportLang::Ruby,
+        grammar: Grammar::AstGrep(SupportLang::Ruby),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -222,7 +335,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "dart",
         extensions: &["dart"],
-        lang: SupportLang::Dart,
+        grammar: Grammar::AstGrep(SupportLang::Dart),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -234,7 +347,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "lua",
         extensions: &["lua"],
-        lang: SupportLang::Lua,
+        grammar: Grammar::AstGrep(SupportLang::Lua),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -246,7 +359,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "bash",
         extensions: &["sh", "bash"],
-        lang: SupportLang::Bash,
+        grammar: Grammar::AstGrep(SupportLang::Bash),
         ident: false,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -258,7 +371,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "scala",
         extensions: &["scala", "sc"],
-        lang: SupportLang::Scala,
+        grammar: Grammar::AstGrep(SupportLang::Scala),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -270,7 +383,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "elixir",
         extensions: &["ex", "exs"],
-        lang: SupportLang::Elixir,
+        grammar: Grammar::AstGrep(SupportLang::Elixir),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -282,7 +395,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "haskell",
         extensions: &["hs", "lhs"],
-        lang: SupportLang::Haskell,
+        grammar: Grammar::AstGrep(SupportLang::Haskell),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -294,7 +407,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
     LangSpec {
         id: "zig",
         extensions: &["zig"],
-        lang: SupportLang::Zig,
+        grammar: Grammar::AstGrep(SupportLang::Zig),
         ident: true,
         rewrite: true,
         binding: BindingSupport::Local,
@@ -303,6 +416,153 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         limitations: "obj.member/ptr->member access blocks member renames; @import namespacing, comptime and anytype dispatch are not modeled; file-local only",
         fixtures: &["ident-zig", "rewrite-zig", "rename-zig"],
     },
+    // Wave C: standalone tree-sitter grammar crates (published to the
+    // stuff crates registry). binding stays None until per-language
+    // analyzers land; ident/rewrite are verified by fixtures.
+    LangSpec {
+        id: "r",
+        extensions: &["r", "R"],
+        grammar: Grammar::Raw(tree_sitter_r::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-r)",
+        limitations: "S3/R6 method dispatch and non-standard evaluation are not modeled",
+        fixtures: &["ident-r", "rewrite-r"],
+    },
+    LangSpec {
+        id: "julia",
+        extensions: &["jl"],
+        grammar: Grammar::Raw(tree_sitter_julia::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-julia)",
+        limitations: "multiple dispatch and generated functions are not modeled",
+        fixtures: &["ident-julia", "rewrite-julia"],
+    },
+    LangSpec {
+        id: "objective-c",
+        extensions: &["m", "mm"],
+        grammar: Grammar::Raw(tree_sitter_objc::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-objc)",
+        limitations: ".m files also match MATLAB/Octave; this row wins by registry order; Objective-C message dispatch is not modeled",
+        fixtures: &["ident-objective-c", "rewrite-objective-c"],
+    },
+    LangSpec {
+        id: "erlang",
+        extensions: &["erl", "hrl"],
+        grammar: Grammar::Raw(tree_sitter_erlang::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &["atom", "var"],
+        license: "MIT (tree-sitter-erlang)",
+        limitations: "records, maps and process dictionary semantics are not modeled",
+        fixtures: &["ident-erlang", "rewrite-erlang"],
+    },
+    LangSpec {
+        id: "ocaml",
+        extensions: &["ml"],
+        grammar: Grammar::Raw(tree_sitter_ocaml::LANGUAGE_OCAML),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &["value_name", "type_constructor", "constructor_name"],
+        license: "MIT (tree-sitter-ocaml)",
+        limitations: "module system, functors and GADTs are only partially modeled",
+        fixtures: &["ident-ocaml", "rewrite-ocaml"],
+    },
+    LangSpec {
+        id: "ocaml-interface",
+        extensions: &["mli"],
+        grammar: Grammar::Raw(tree_sitter_ocaml::LANGUAGE_OCAML_INTERFACE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &["value_name", "type_constructor", "constructor_name"],
+        license: "MIT (tree-sitter-ocaml)",
+        limitations: "signature files only; implementation files use the ocaml row",
+        fixtures: &["ident-ocaml-interface", "rewrite-ocaml-interface"],
+    },
+    LangSpec {
+        id: "fsharp",
+        extensions: &["fs", "fsx"],
+        grammar: Grammar::Raw(tree_sitter_fsharp::LANGUAGE_FSHARP),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-fsharp)",
+        limitations: ".fsi signature files use the fsharp-signature row; computation expressions and units of measure are not modeled",
+        fixtures: &["ident-fsharp", "rewrite-fsharp"],
+    },
+    LangSpec {
+        id: "fsharp-signature",
+        extensions: &["fsi"],
+        grammar: Grammar::Raw(tree_sitter_fsharp::LANGUAGE_SIGNATURE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-fsharp)",
+        limitations: "signature files only",
+        fixtures: &["ident-fsharp-signature", "rewrite-fsharp-signature"],
+    },
+    LangSpec {
+        id: "groovy",
+        extensions: &["groovy", "gradle"],
+        grammar: Grammar::Raw(tree_sitter_groovy::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-groovy)",
+        limitations: "tree-sitter-groovy 0.1.2 is immature: some method-body expressions fail to parse (files are skipped); Gradle DSL dynamic dispatch is not modeled",
+        fixtures: &["ident-groovy", "rewrite-groovy"],
+    },
+    LangSpec {
+        id: "fortran",
+        extensions: &["f90", "f95", "f03", "f08"],
+        grammar: Grammar::Raw(tree_sitter_fortran::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &["name"],
+        license: "MIT (tree-sitter-fortran)",
+        limitations: "fixed-form and F77 are not supported; Fortran semantics (argument aliasing, sequence association) are not modeled",
+        fixtures: &["ident-fortran", "rewrite-fortran"],
+    },
+    LangSpec {
+        id: "matlab",
+        extensions: &["m"],
+        grammar: Grammar::Raw(tree_sitter_matlab::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-matlab)",
+        limitations: ".m files are claimed by objective-c first; select with --lang matlab; Octave dialect and function-handle dispatch are not modeled",
+        fixtures: &["ident-matlab", "rewrite-matlab"],
+    },
+    LangSpec {
+        id: "vb-dotnet",
+        extensions: &["vb"],
+        grammar: Grammar::Raw(tree_sitter_vb_dotnet::LANGUAGE),
+        ident: true,
+        rewrite: true,
+        binding: BindingSupport::None,
+        ident_kinds: &[],
+        license: "MIT (tree-sitter-vb-dotnet)",
+        limitations: "VB is case-insensitive; rename preserves spelling case per occurrence",
+        fixtures: &["ident-vb-dotnet", "rewrite-vb-dotnet"],
+    },
 ];
 
 /// Resolve a --lang value (id, alias or SupportLang name) to a spec.
@@ -310,7 +570,7 @@ pub(crate) fn by_name(name: &str) -> Option<&'static LangSpec> {
     LANGUAGES.iter().find(|spec| {
         spec.id == name
             || spec.extensions.contains(&name)
-            || SupportLang::from_str(name).is_ok_and(|l| l == spec.lang)
+            || SupportLang::from_str(name).is_ok_and(|l| spec.grammar.support_lang() == Some(l))
     })
 }
 

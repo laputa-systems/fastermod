@@ -1,0 +1,5 @@
+--ident
+bump
+renamed
+--apply
+{ROOT}

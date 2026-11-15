@@ -11,7 +11,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use ast_grep_core::tree_sitter::LanguageExt;
 use tree_sitter::{Node, Parser};
 
 use crate::bind::{Analysis, BindingSite, Expansion, ImportEdge, ModDecl, RefSite};
@@ -56,7 +55,7 @@ pub(crate) fn analyze(
     contents: &str,
     _path: &std::path::Path,
 ) -> Option<Analysis> {
-    let language: tree_sitter::Language = spec.lang.get_ts_language();
+    let language: tree_sitter::Language = spec.grammar.ts_language();
     let mut parser = Parser::new();
     parser.set_language(&language).ok()?;
     let tree = parser.parse(contents, None)?;

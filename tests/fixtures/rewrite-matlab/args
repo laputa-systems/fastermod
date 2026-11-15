@@ -1,0 +1,7 @@
+--lang
+matlab
+--rewrite
+x + bump
+x + renamed
+--apply
+{ROOT}
