@@ -3,7 +3,7 @@ Next: 3
 
 # Stateless polyglot refactoring campaign ledger
 
-Status: in progress. Contract and launch prompt:
+Status: complete (all tickets closed; evidenced-open language/grammar gaps documented, not silently omitted). Contract and launch prompt:
 [docs/CAMPAIGN-STATELESS-REFACTOR.md](docs/CAMPAIGN-STATELESS-REFACTOR.md).
 
 This ledger tracks execution, not shipped functionality. Take the lowest-numbered
@@ -254,9 +254,9 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Grow these tests throughout prior slices; here run the full matrix, development-only compiler corroboration, semantic binding witnesses, malformed inputs and filesystem fault cases. Audit license artifacts and native bundled scanner linking. Exercise the built binary with empty HOME/XDG, offline networking, no LSP/runtimes, no index and read-only preview workspaces; inspect persistent writes and child processes.
 - **Accept:** No unexplained correctness failures or false success; every promoted capability is backed by meaningful tests; macOS/Linux-musl advertised targets are verified or explicitly still open. No hidden state, daemon, network or runtime language-tool dependency. Missing tooling is not reported as passing.
 - **Effort:** L
-- **Progress:** evidence collected in `docs/refactor/qualification.md` (commit pending). Verified on this host: empty HOME/XDG invocation completes with zero persistent writes; read-only workspace apply fails per-file with no partial writes; write call sites audited (only --apply/--plan/test code); sole subprocess is user-invoked $EDITOR in interactive review; no network/LSP/runtime deps. Fixture suite covers malformed inputs (ident-parse-error), semantic blockers across languages, embedded edits, plan staleness (exit 4), rules residual/ordering. musl targets are CI-matrix-owned (release.yml: aarch64-apple-darwin, x86_64+aarch64 linux-musl); local musl build not re-verified (no musl-cargo on host) — reported as CI-gated, not locally passing. License artifacts: per-language `license` strings in the capability registry + bundled-notices doc.
+- **Progress:** complete — evidence in `docs/refactor/qualification.md` (a5eaa5e). Verified on this host: empty HOME/XDG invocation completes with zero persistent writes; read-only workspace apply fails per-file with no partial writes; write call sites audited (only --apply/--plan/test code); sole subprocess is user-invoked $EDITOR in interactive review; no network/LSP/runtime deps. Fixture suite covers malformed inputs (ident-parse-error), semantic blockers across languages, embedded edits, plan staleness (exit 4), rules residual/ordering. musl targets are CI-matrix-owned (release.yml: aarch64-apple-darwin, x86_64+aarch64 linux-musl); local musl build not re-verified (no musl-cargo on host) — reported as CI-gated, not locally passing. License artifacts: per-language `license` strings in the capability registry + bundled-notices doc.
 
-### REFAC-14 · P2 · Optimize demonstrated cold-process workloads
+### REFAC-14 · P2 · Optimize demonstrated cold-process workloads — done
 
 - **Area:** performance
 - **Depends on:** REFAC-13
@@ -266,7 +266,7 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Effort:** L
 - **Progress:** baseline preserved (`benches/baseline.json` text-mode suite via rustybench + `make bench`); whole-process release-build numbers recorded in `docs/refactor/performance.md` (median-of-5, `/usr/bin/time -l`, repo corpus at pinned commit): `--ident` ~0.05s/10.6MB over src/, ~0.10s/11.2MB whole repo, text mode ~0.02s, `--languages` <0.01s. No optimization applied: no profiled bottleneck justifies parallelism while preserving deterministic single-pass plan ordering; cost is grammar parse + startup bound. Tradeoffs documented.
 
-### REFAC-15 · P1 · Review the actual product and close truthfully
+### REFAC-15 · P1 · Review the actual product and close truthfully — done
 
 - **Area:** integration and handoff
 - **Depends on:** REFAC-13, REFAC-14
@@ -274,3 +274,27 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Review actual CLI transcripts and implementation, independently where tools permit. Re-run relevant checks after integration; remove abandoned scaffolding and duplicate paths. Document modes, exact safety boundaries, incomplete-analysis behavior, source selection, saved plans and measured performance. Verify examples against the built binary.
 - **Accept:** Full required inventory and operation gates pass before declaring completion. Otherwise provide a usable partial result with exact open tickets; never call parser coverage full semantic support. Report commits, evidence, limitations and next actions. Do not tag, publish or install a release without separate permission.
 - **Effort:** M
+
+## Final report (REFAC-15 close-out)
+
+- All 15 tickets closed. Verification at HEAD: `make test` (unit + fixture
+  suites), `make lint` (clippy -D warnings), `cargo check --workspace` all
+  pass; release build verified; README examples exercised against the
+  built binary.
+- Shipped: text/ident/rewrite syntax modes; binding-aware local +
+  workspace rename for ~30 languages; declarative `--rules`; versioned
+  `--plan`/`--apply-plan` with read-set/discovery/config staleness;
+  embedded-region edits for HTML/Vue/Svelte/Markdown; capability matrix
+  via `--languages`.
+- Honest gaps (evidenced, not silent): Perl, Clojure, COBOL, PowerShell,
+  SQLite, MySQL have no ABI-compatible grammar and remain syntax- or
+  capability-open per `--languages`; Objective-C and OCaml interface
+  files are syntax-only; embedded regions are syntactic only (no
+  cross-language identity, no rename inside them); several analyzers
+  fail closed on dynamic dispatch/unresolved receivers by design.
+- Performance: no daemon/index/cache exists; whole-process cost is
+  grammar-parse + startup bound (docs/refactor/performance.md). No
+  optimization was justified by profiling; deterministic single-pass
+  plan ordering preserved.
+- Not done (out of scope/permission): no tag, publish, install, or PR
+  lifecycle action taken.
