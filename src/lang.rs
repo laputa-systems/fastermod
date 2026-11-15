@@ -230,10 +230,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Bash,
         ident: false,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-bash)",
-        limitations: "posix shell subset; aliases, eval and command substitution are matched syntactically only",
-        fixtures: &["rewrite-bash"],
+        limitations: "posix shell subset; aliases, eval, indirect expansion and namerefs are not modeled; no block scoping (matches shell semantics)",
+        fixtures: &["rewrite-bash", "rename-bash"],
     },
 ];
 
