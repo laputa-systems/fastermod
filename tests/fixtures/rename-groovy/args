@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+a.groovy:1:5
+--apply
+{ROOT}

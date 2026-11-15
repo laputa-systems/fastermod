@@ -521,11 +521,11 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         grammar: Grammar::Raw(tree_sitter_groovy::LANGUAGE),
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         ident_kinds: &[],
         license: "MIT (tree-sitter-groovy)",
         limitations: "tree-sitter-groovy 0.1.2 is immature: some method-body expressions fail to parse (files are skipped); Gradle DSL dynamic dispatch is not modeled",
-        fixtures: &["ident-groovy", "rewrite-groovy"],
+        fixtures: &["ident-groovy", "rewrite-groovy", "rename-groovy"],
     },
     LangSpec {
         id: "fortran",
@@ -693,3 +693,4 @@ pub(crate) fn detect(path: &Path, overrides: &[String]) -> Option<&'static LangS
 pub(crate) fn is_identifier_kind(kind: &str) -> bool {
     kind == "identifier" || kind.ends_with("_identifier")
 }
+

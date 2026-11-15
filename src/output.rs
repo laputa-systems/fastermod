@@ -139,7 +139,7 @@ pub(crate) fn languages_report(json: bool) -> String {
         let mut out = String::new();
         out.push_str("{\"schema\":1,\"grammar_bundle\":");
         out.push_str(&json_string(crate::lang::GRAMMAR_BUNDLE));
-        out.push_str(",\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rename\":{\"status\":\"available\",\"engine\":\"binding\",\"scope\":\"local-file\"},\"rewrite\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rules\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"},\"apply-plan\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"}},\"languages\":[");
+        out.push_str(",\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rename\":{\"status\":\"available\",\"engine\":\"binding\",\"scope\":\"local-file\"},\"rewrite\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rules\":{\"status\":\"available\",\"engine\":\"rules\"},\"apply-plan\":{\"status\":\"available\",\"engine\":\"plan\"}},\"languages\":[");
         for (i, spec) in crate::lang::LANGUAGES.iter().enumerate() {
             if i > 0 {
                 out.push(',');
@@ -186,8 +186,8 @@ pub(crate) fn languages_report(json: bool) -> String {
     out.push_str("  ident      available (syntax-aware identifier tokens)\n");
     out.push_str("  rename     available (binding-aware local + workspace rename)\n");
     out.push_str("  rewrite    available (structural pattern rewrite)\n");
-    out.push_str("  rules      unavailable (REFAC-12)\n");
-    out.push_str("  apply-plan unavailable (REFAC-12)\n");
+    out.push_str("  rules      available (data-only TOML ops)\n");
+    out.push_str("  apply-plan available (versioned JSON plans)\n");
     out.push_str("languages:\n");
     for spec in crate::lang::LANGUAGES {
         let ops = format!(
