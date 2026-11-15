@@ -1,6 +1,6 @@
 # FAST-7: License notices
 
-Status: draft
+Status: implemented (dual-license: new code MIT OR Apache-2.0; extracted files remain Apache-2.0 only; see LICENSE and LICENSE-APACHE)
 
 ## Summary
 
