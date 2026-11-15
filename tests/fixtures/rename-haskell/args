@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+A.hs:4:1
+--apply
+{ROOT}

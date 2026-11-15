@@ -56,6 +56,7 @@ macro_rules! ensure {
 
 mod bind;
 mod bind_go;
+mod bind_haskell;
 mod bind_bash;
 mod bind_c;
 mod bind_cpp;
