@@ -208,10 +208,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Dart,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-dart)",
-        limitations: "",
-        fixtures: &["ident-dart", "rewrite-dart"],
+        limitations: "o.m/o.f on non-this receivers blocks member renames; import resolution, noSuchMethod and dynamic dispatch are not modeled",
+        fixtures: &["ident-dart", "rewrite-dart", "rename-dart"],
     },
     LangSpec {
         id: "lua",

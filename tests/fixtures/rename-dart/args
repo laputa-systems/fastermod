@@ -1,0 +1,7 @@
+--rename
+bump
+boost
+--at
+A.dart:3:7
+--apply
+{ROOT}

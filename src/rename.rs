@@ -26,6 +26,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "csharp" => crate::bind_csharp::analyze(spec, contents, path),
         "kotlin" => crate::bind_kotlin::analyze(spec, contents, path),
         "swift" => crate::bind_swift::analyze(spec, contents, path),
+        "dart" => crate::bind_dart::analyze(spec, contents, path),
         "php" => crate::bind_php::analyze(spec, contents, path),
         "ruby" => crate::bind_ruby::analyze(spec, contents, path),
         _ => None,
