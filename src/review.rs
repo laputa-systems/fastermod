@@ -83,7 +83,7 @@ pub(crate) fn prompt_reply_stderr(prompt: &str) -> std::io::Result<String> {
     read_reply()
 }
 
-fn prompt(prompt_text: &str, letters: &str, default: Option<char>) -> Result<char> {
+pub(crate) fn prompt(prompt_text: &str, letters: &str, default: Option<char>) -> Result<char> {
     loop {
         let input = prompt_reply_stdout(prompt_text)
             .map_err(|e| error_with_context("Unable to read user input", e))?;

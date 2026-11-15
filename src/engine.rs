@@ -13,35 +13,23 @@ use crate::discovery::{FileSet, matching_files};
 use crate::output::{languages_report, plan_json_report};
 use crate::plan;
 use crate::review::{Fastermod, prompt_reply_stderr};
+use crate::syntax;
 use crate::text::Substitution;
 use crate::{Failure, operational};
 
-/// Preview (check/JSON/apply-with-JSON) or report on text-mode edits through
-/// a typed edit plan. Plain `--apply`/`--accept-all` without `--json`
-/// keeps the parallel fast path and never reaches here.
+/// Shared tail for every engine: validate, then JSON/check/apply/preview.
+/// `roots` are the declared coverage roots used by plan::apply containment.
 #[allow(clippy::too_many_arguments)]
-fn run_text_pipeline(
-    regex: &Regex,
-    matcher: &RegexMatcher,
-    substitution: &Substitution,
-    dirs: Vec<&str>,
-    file_set: Option<FileSet>,
-    hidden: bool,
-    no_ignore: bool,
-    print_changed_files: bool,
+fn finish_pipeline(
+    mut plan: plan::EditPlan,
+    roots: &[String],
     apply: bool,
     check: bool,
     json: bool,
-    roots: &[String],
+    print_changed_files: bool,
+    hidden: bool,
+    no_ignore: bool,
 ) -> std::result::Result<i32, Failure> {
-    let files = operational(matching_files(dirs, file_set, hidden, no_ignore, matcher))?;
-    let mut plan = plan::build_text_plan(
-        Mode::Text.name(),
-        regex,
-        substitution,
-        &files,
-        roots.to_vec(),
-    );
     let problems = plan::validate(&plan);
     if !problems.is_empty() {
         return Err(Failure::io(format!(
@@ -50,6 +38,7 @@ fn run_text_pipeline(
         )));
     }
     let files_edited = plan.coverage.files_edited;
+    let _ = roots;
 
     if json {
         let apply_result = if apply {
@@ -115,6 +104,171 @@ fn run_text_pipeline(
     Ok(0)
 }
 
+/// Text-mode entry: build the plan, then share the report/apply tail.
+#[allow(clippy::too_many_arguments)]
+fn run_text_pipeline(
+    regex: &Regex,
+    matcher: &RegexMatcher,
+    substitution: &Substitution,
+    dirs: Vec<&str>,
+    file_set: Option<FileSet>,
+    hidden: bool,
+    no_ignore: bool,
+    print_changed_files: bool,
+    apply: bool,
+    check: bool,
+    json: bool,
+    roots: &[String],
+) -> std::result::Result<i32, Failure> {
+    let files = operational(matching_files(dirs, file_set, hidden, no_ignore, matcher))?;
+    let plan = plan::build_text_plan(
+        Mode::Text.name(),
+        regex,
+        substitution,
+        &files,
+        roots.to_vec(),
+    );
+    finish_pipeline(
+        plan,
+        roots,
+        apply,
+        check,
+        json,
+        print_changed_files,
+        hidden,
+        no_ignore,
+    )
+}
+
+/// Interactive per-file review for syntax modes: show each file's diff and
+/// accept/reject it, then apply the accepted set as one plan. Mirrors the
+/// text mode's y/n/A/q review at file granularity — --ident and --rewrite
+/// edits are already whole-file consistent, so per-file review is the
+/// correct unit (rename will review as one operation per cli.md).
+fn interactive_syntax_review(
+    mut plan: plan::EditPlan,
+    hidden: bool,
+    no_ignore: bool,
+    print_changed_files: bool,
+) -> std::result::Result<i32, Failure> {
+    use crate::review::prompt;
+
+    let mut fm = Fastermod::new(false, hidden, no_ignore, print_changed_files);
+    let mut accepted = Vec::new();
+    let mut yes_to_all = false;
+    for file in std::mem::take(&mut plan.files) {
+        let diffs = fm.diffs_to_print(&file.before, &file.after);
+        if diffs.is_empty() {
+            continue;
+        }
+        let (start_line, end_line) =
+            diff_line_span(&compute_diff(&file.before, &file.after));
+        if start_line == end_line {
+            println!("{}:{}", file.path.display(), start_line);
+        } else {
+            println!("{}:{}-{}", file.path.display(), start_line, end_line);
+        }
+        fm.print_diff(&diffs);
+        let answer = if yes_to_all {
+            'y'
+        } else {
+            match prompt(
+                "Accept change (y = yes [default], n = no, A = yes to all, q = quit)?\n",
+                "ynAq",
+                Some('y'),
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    return Err(Failure::io(format!("Unable to read user input: {e}")));
+                }
+            }
+        };
+        match answer {
+            'y' => accepted.push(file),
+            'A' => {
+                yes_to_all = true;
+                accepted.push(file);
+            }
+            'q' => {
+                println!("Interrupted; {} file(s) accepted before quit.", accepted.len());
+                break;
+            }
+            'n' => {}
+            _ => unreachable!(),
+        }
+    }
+    plan.files = accepted;
+    plan.coverage.files_edited = plan.files.len();
+    if plan.files.is_empty() {
+        return Ok(0);
+    }
+    plan::apply(&mut plan)?;
+    fm.print_changed_files_if_needed();
+    Ok(0)
+}
+
+/// Discovery + engine dispatch for --ident and --rewrite.
+#[allow(clippy::too_many_arguments)]
+fn run_syntax_pipeline(
+    mode: Mode,
+    pattern: &str,
+    replacement: &str,
+    dirs: Vec<&str>,
+    file_set: Option<FileSet>,
+    hidden: bool,
+    no_ignore: bool,
+    print_changed_files: bool,
+    apply: bool,
+    dry_run: bool,
+    check: bool,
+    json: bool,
+    interactive: bool,
+    roots: &[String],
+    langs: &[String],
+) -> std::result::Result<i32, Failure> {
+    // Discovery prefilter: --ident can require the literal OLD bytes;
+    // --rewrite patterns have no reliable literal head, so every candidate
+    // file is read (correctness first; REFAC-14 owns performance).
+    let matcher = if mode == Mode::Ident {
+        RegexMatcherBuilder::new()
+            .build(&regex_lite::escape(pattern))
+            .map_err(|e| Failure::usage(format!("Unable to make matcher: {e}")))?
+    } else {
+        RegexMatcherBuilder::new()
+            .build("")
+            .map_err(|e| Failure::usage(format!("Unable to make matcher: {e}")))?
+    };
+    let files = operational(matching_files(dirs, file_set, hidden, no_ignore, &matcher))?;
+    let scanned = files.len();
+    let run = match mode {
+        Mode::Ident => syntax::run_ident(pattern, replacement, &files, langs)?,
+        Mode::Rewrite => syntax::run_rewrite(pattern, replacement, &files, langs)?,
+        _ => unreachable!(),
+    };
+    let plan = plan::assemble_plan(
+        mode.name(),
+        run.files,
+        scanned,
+        roots.to_vec(),
+        run.skipped,
+        run.diagnostics,
+    );
+    if interactive {
+        return interactive_syntax_review(plan, hidden, no_ignore, print_changed_files);
+    }
+    let _ = dry_run; // dry_run already forced non-interactive; preview never writes.
+    finish_pipeline(
+        plan,
+        roots,
+        apply,
+        check,
+        json,
+        print_changed_files,
+        hidden,
+        no_ignore,
+    )
+}
+
 pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
     let Args {
         mode,
@@ -149,9 +303,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
         return Ok(0);
     }
     for (unimplemented, flag) in [
-        (mode == Mode::Ident, "--ident"),
         (mode == Mode::Rename, "--rename"),
-        (mode == Mode::Rewrite, "--rewrite"),
         (mode == Mode::Rules, "--rules"),
         (mode == Mode::ApplyPlan, "--apply-plan"),
     ] {
@@ -167,7 +319,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             "--plan is not yet implemented in this build",
         ));
     }
-    let _ = (apply_plan, rules_file, at_anchor, langs);
+    let _ = (apply_plan, rules_file, at_anchor);
 
     let dirs = {
         let mut dirs: Vec<_> = dir
@@ -194,6 +346,36 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             case_insensitive: true,
         })
     };
+
+    // Syntax modes dispatch before any regex is compiled; `match_regex` and
+    // `subst` still hold the raw OLD/NEW positionals here.
+    if matches!(mode, Mode::Ident | Mode::Rewrite) {
+        let apply = accept_all || apply;
+        let interactive = !apply
+            && !dry_run
+            && !check
+            && !json
+            && std::io::stdin().is_terminal()
+            && std::io::stdout().is_terminal();
+        return run_syntax_pipeline(
+            mode,
+            &match_regex,
+            &subst,
+            dirs,
+            file_set,
+            hidden,
+            no_ignore,
+            print_changed_files,
+            apply,
+            dry_run,
+            check,
+            json,
+            interactive,
+            &roots,
+            &langs,
+        );
+    }
+
     let regex_str = match_regex.as_str();
     let subst = subst.as_str();
     let (maybe_escaped_regex, subst) = if fixed_strings {

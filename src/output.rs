@@ -112,25 +112,95 @@ pub(crate) fn plan_json_report(plan: &EditPlan) -> String {
     out
 }
 
+fn binding_str(binding: crate::lang::BindingSupport) -> &'static str {
+    match binding {
+        crate::lang::BindingSupport::None => "none",
+        crate::lang::BindingSupport::Local => "local",
+    }
+}
+
+/// Serialize the capability registry. The same data drives both the human
+/// and JSON forms so they can never disagree about what a mode supports.
 pub(crate) fn languages_report(json: bool) -> String {
     if json {
-        return "{\"schema\":1,\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-6\"},\"rename\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-7\"},\"rewrite\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-6\"},\"rules\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"},\"apply-plan\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"}},\"languages\":[]}\n".to_string();
+        let mut out = String::new();
+        out.push_str("{\"schema\":1,\"grammar_bundle\":");
+        out.push_str(&json_string(crate::lang::GRAMMAR_BUNDLE));
+        out.push_str(",\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rename\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-7\"},\"rewrite\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rules\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"},\"apply-plan\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"}},\"languages\":[");
+        for (i, spec) in crate::lang::LANGUAGES.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"id\":{},\"extensions\":[", json_string(spec.id)
+            ));
+            for (j, ext) in spec.extensions.iter().enumerate() {
+                if j > 0 {
+                    out.push(',');
+                }
+                out.push_str(&json_string(ext));
+            }
+            out.push_str(&format!(
+                "],\"grammar\":{},\"license\":{},\"operations\":{{\"ident\":{},\"rewrite\":{},\"binding\":{}}},\"identifier_kinds\":{},\"symbol_kinds\":{},\"limitations\":{},\"fixtures\":[",
+                json_string(crate::lang::GRAMMAR_BUNDLE),
+                json_string(spec.license),
+                spec.ident,
+                spec.rewrite,
+                json_string(binding_str(spec.binding)),
+                json_string("identifier or *_identifier"),
+                json_string("unresolved until binding engine lands"),
+                json_string(spec.limitations),
+            ));
+            for (j, fixture) in spec.fixtures.iter().enumerate() {
+                if j > 0 {
+                    out.push(',');
+                }
+                out.push_str(&json_string(fixture));
+            }
+            out.push_str("]}");
+        }
+        out.push_str("]}\n");
+        return out;
     }
     let mut out = String::new();
     out.push_str(&format!(
         "fastermod {} capability report\n",
         env!("CARGO_PKG_VERSION")
     ));
+    out.push_str(&format!("grammar bundle: {}\n", crate::lang::GRAMMAR_BUNDLE));
     out.push_str("modes:\n");
     out.push_str("  text       available (regex/literal substitution)\n");
-    out.push_str("  ident      unavailable (REFAC-6)\n");
+    out.push_str("  ident      available (syntax-aware identifier tokens)\n");
     out.push_str("  rename     unavailable (REFAC-7/8)\n");
-    out.push_str("  rewrite    unavailable (REFAC-6)\n");
+    out.push_str("  rewrite    available (structural pattern rewrite)\n");
     out.push_str("  rules      unavailable (REFAC-12)\n");
     out.push_str("  apply-plan unavailable (REFAC-12)\n");
-    out.push_str("languages: no syntax-aware adapters yet; the typed capability\n");
-    out.push_str("registry lands with REFAC-6. Parser availability is not rename\n");
-    out.push_str("support.\n");
+    out.push_str("languages:\n");
+    for spec in crate::lang::LANGUAGES {
+        let ops = format!(
+            "ident:{} rewrite:{} binding:{}",
+            if spec.ident { "yes" } else { "no" },
+            if spec.rewrite { "yes" } else { "no" },
+            binding_str(spec.binding),
+        );
+        out.push_str(&format!(
+            "  {:<11} .{:<14} {}  {}\n",
+            spec.id,
+            spec.extensions.join(", ."),
+            spec.license,
+            ops,
+        ));
+        out.push_str(&format!(
+            "             identifier kinds: identifier or *_identifier; {}\n",
+            spec.limitations
+        ));
+        out.push_str(&format!(
+            "             fixtures: {}\n",
+            spec.fixtures.join(", ")
+        ));
+    }
+    out.push_str("Parser availability is not rename support; binding:\"none\" means\n");
+    out.push_str("--rename cannot run for that language yet.\n");
     out
 }
 

@@ -260,8 +260,8 @@ fn parse_args_inner() -> Result<Args> {
         "--at is only valid with --rename"
     );
     ensure!(
-        langs.is_empty() || matches!(mode, Mode::Rewrite | Mode::Rules),
-        "--lang is only valid with --rewrite or --rules"
+        langs.is_empty() || matches!(mode, Mode::Ident | Mode::Rewrite | Mode::Rules),
+        "--lang is only valid with --ident, --rewrite or --rules"
     );
     ensure!(
         plan.is_none() || !matches!(mode, Mode::ApplyPlan | Mode::Languages),

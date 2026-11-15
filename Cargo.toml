@@ -10,11 +10,14 @@ description = "A fast partial replacement for codemod"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+ast-grep-core = "0.51"
+ast-grep-language = "0.51"
 grep = "0.4"
 ignore = "0.4.1"
 imara-histogram-diff = { path = "imara-histogram-diff" }
 lexopt = "0.3.2"
 regex-lite = "0.1.9"
+tree-sitter = "0.27"
 
 [dev-dependencies]
 rustybench = "0.5"

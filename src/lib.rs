@@ -58,10 +58,12 @@ mod cli;
 mod diff;
 mod discovery;
 mod engine;
+mod lang;
 mod output;
 mod plan;
 mod review;
 mod source;
+mod syntax;
 mod terminal;
 mod text;
 

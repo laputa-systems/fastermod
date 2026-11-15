@@ -1,4 +1,7 @@
 --ident
 foo
 bar
+--lang
+rust
+--apply
 {ROOT}

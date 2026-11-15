@@ -193,17 +193,32 @@ pub(crate) fn build_text_plan(
             });
         }
     }
-    let coverage = Coverage {
+    assemble_plan(
+        mode,
+        planned,
+        files.len(),
         roots,
-        files_scanned: files.len(),
-        files_edited: planned.len(),
-        files_skipped: Vec::new(),
-        unresolved: Vec::new(),
-    };
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+/// Assemble a complete plan from engine-produced files plus coverage
+/// evidence. Shared by every engine so operation ids, coverage and
+/// diagnostics have one shape.
+pub(crate) fn assemble_plan(
+    mode: &str,
+    files: Vec<PlannedFile>,
+    files_scanned: usize,
+    roots: Vec<String>,
+    files_skipped: Vec<SkippedFile>,
+    diagnostics: Vec<Diagnostic>,
+) -> EditPlan {
+    let files_edited = files.len();
     // Content-derived so the id is stable across checkouts and machines;
     // paths are provenance in the plan itself, not part of the identity.
     let mut seed = mode.to_string();
-    for file in &planned {
+    for file in &files {
         seed.push_str(&format!(
             "{:016x}{:016x}",
             file.before_hash,
@@ -219,9 +234,15 @@ pub(crate) fn build_text_plan(
         mode: mode.to_string(),
         applied: false,
         operation_id: format!("fm1-{:016x}", content_hash(&seed)),
-        coverage,
-        files: planned,
-        diagnostics: Vec::new(),
+        coverage: Coverage {
+            roots,
+            files_scanned,
+            files_edited,
+            files_skipped,
+            unresolved: Vec::new(),
+        },
+        files,
+        diagnostics,
     }
 }
 

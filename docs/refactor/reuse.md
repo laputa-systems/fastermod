@@ -56,13 +56,16 @@ Date: 2026-11-15. Toolchain: `nightly-2026-11-09`. Spike code:
   `imara-histogram-diff`/`rustix` build on unix targets; verify musl).
 - `rust-version`: tree-sitter 1.90, ast-grep 1.90, oxc 1.97 — all below
   the pinned `nightly-2026-11-09` toolchain.
-- `ast-grep-language` default features pull all 26 grammars; adopt with
-  `default-features = false` + explicit per-language features so the
-  binary only carries shipped grammars.
-- The repo's crates mirror (`source.stuff`) does **not** carry these
-  crates; the spike vendors them (`spikes/reuse-spike/vendor`, gitignored,
-  regenerate via `cargo vendor`). Adoption will need the mirror updated
-  or vendored sources committed deliberately — flagged for REFAC-6.
+- `ast-grep-language` has no per-language features: `builtin-parser`
+  bundles all 26 grammars (or `napi-lang` for a JS/TS/CSS/HTML subset).
+  REFAC-6 ships the full `builtin-parser` set — waves B–D need most of
+  those grammars anyway, and compile cost is paid once.
+- The repo's crates mirror (`source.stuff`) originally did **not** carry
+  these crates; they were published to it via
+  `stuff publish cargo --lockfile` (mirroring the spike's Cargo.lock,
+  ~252 MB of crate payloads, 2026-11-15). `cargo` now resolves
+  ast-grep-*/tree-sitter-*/oxc_* normally; the spike's vendored copy
+  remains gitignored reference material.
 - Versions are pinned exactly in `spikes/reuse-spike/Cargo.lock`
   (2026-11-15): tree-sitter 0.27.2, ast-grep-* 0.51.2, oxc_* 0.158.0.
 

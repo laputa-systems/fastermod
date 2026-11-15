@@ -21,11 +21,12 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
   and refreshed `benches/baseline.json` (large positive deltas on
   `patch_single_1mb_file`/`run_fast_match_100_files` recorded in
   `docs/refactor/baseline.md` for REFAC-14).
-- Implemented: dual-license resolution (LICENSE-APACHE, `MIT OR
-  Apache-2.0`), directory-driven fixture runner `tests/fixtures.rs` with 5
-  seed cases including smartcase coverage (FAST-8).
-- Limitations: non-TTY preview behavior, `--ident`/`--rename`/`--rewrite`,
-  JSON output and plans do not exist yet; those are REFAC-2+ scope.
+- Implemented through REFAC-6: dual-license resolution (LICENSE-APACHE,
+  `MIT OR Apache-2.0`), fixture runner, frozen CLI grammar, library split
+  + typed plans, safe multi-file apply, ast-grep/tree-sitter reuse
+  decision, `--ident`/`--rewrite` syntax engines + capability registry
+  for wave A. `--rename`, `--rules`, `--apply-plan`, `--plan` remain
+  exit-3 stubs (REFAC-7/8/12).
 
 ## Tickets
 
@@ -120,8 +121,10 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
   languages outside ast-grep's set; explicit per-language resolver for
   non-JS/TS bindings. `srgn` reviewed and rejected as dependency
   (binary-first, narrow); `stack-graphs` rejected (archived). All MIT.
-  Flagged: repo crates mirror lacks these crates — adoption needs mirror
-  update or deliberate vendoring (REFAC-6).
+  Mirror gap resolved 2026-11-15: `stuff publish cargo --lockfile`
+  published the spike's dependency set (~252 MB) to the `stuff`
+  crates-io mirror; `cargo` resolves the crates normally (see
+  `docs/refactor/reuse.md`).
 
 ### REFAC-6 · P1 · Ship identifier and structural modes with a real registry
 
@@ -131,6 +134,30 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Implement exact identifier-role edits, AST patterns/captures/constraints and byte-preserving replacements for wave A. Generate machine/human capabilities from one registry with grammar pins/licenses and fixture IDs. Handle invalid syntax, language detection/overrides and ignored/generated files explicitly.
 - **Accept:** Useful end-to-end Rust/Python/JS/TS edits with comment/string decoys, Unicode, escaping and parse-error fixtures. Syntactic operations are labeled as such. Ordinary use works offline with bundled grammars, no installed sg, no dynamically discovered native plugin.
 - **Effort:** L
+- **Done:** `src/lang.rs` typed capability registry (wave A: rust,
+  python, javascript/jsx, typescript, tsx) drives both human and JSON
+  `--languages` output with grammar bundle pin, license, extensions,
+  identifier roles, rewrite/binding support, limitations and fixture IDs;
+  `binding:"none"` is reported honestly until REFAC-7. `src/syntax.rs`
+  implements `--ident` (identifier-kind nodes only — `identifier` or
+  `*_identifier` — so comments/strings/decoys can never match) and
+  `--rewrite` (ast-grep `Pattern`/`replace_all` with `$$$`/`$VAR`
+  metavars, per-language pattern cache). Files with parse errors are
+  skipped with an explicit reason; unknown extensions are skipped;
+  `--lang` overrides detection for `--ident`/`--rewrite`/`--rules`.
+  Both modes emit typed plans through `plan::assemble_plan`, share the
+  REFAC-4 apply path (staleness, containment, per-file atomicity),
+  support `--check`/`--dry-run`/`--json`, and get per-file interactive
+  y/n/A/q review on TTY. Deps: `ast-grep-core`/`ast-grep-language` 0.51.2
+  + `tree-sitter` 0.27 (all MIT, bundled grammars, no runtime). Verified:
+  `cargo test --workspace` (22 unit + 14 CLI + fixture suite incl. new
+  ident-{rust,python,javascript,typescript,tsx}, rewrite-rust,
+  ident-parse-error, ident-unmatched, ident-lang-override,
+  ident-unicode, languages-json fixtures), `cargo clippy
+  --all-targets --all-features -- --deny warnings`, `cargo check
+  --workspace` all pass. Manual smoke: `--apply` on mixed rs/py/js tree
+  renamed identifiers only; parse-error file skipped; `--lang rust`
+  override parsed a `.txt` file.
 
 ### REFAC-7 · P1 · Implement binding identity and capture-safe local rename
 

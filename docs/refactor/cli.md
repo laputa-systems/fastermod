@@ -2,9 +2,9 @@
 
 Status: frozen. Implemented at `main`: full flag parsing and validation,
 non-TTY preview, `--dry-run`/`--check`/`--json`/`--apply` for text mode,
-`--languages`, frozen exit codes, and exit-3 stubs for `--ident`, `--rename`,
-`--rewrite`, `--rules`, `--apply-plan`, `--plan` (engines land in
-REFAC-6/7/8/12). Base `b00f2af`.
+`--languages`, frozen exit codes, `--ident`/`--rewrite` syntax engines for
+wave A (REFAC-6), and exit-3 stubs for `--rename`, `--rules`,
+`--apply-plan`, `--plan` (engines land in REFAC-7/8/12).
 
 ## Alternatives exercised
 
@@ -83,7 +83,7 @@ There is no automatic fallback from `--rename` to `--ident` or text.
 ## Validation rules (usage errors, exit 2)
 
 - More than one mode flag; missing/extra operands for the mode.
-- `--at` without `--rename`; `--lang` outside `--rewrite`/`--rules`.
+- `--at` without `--rename`; `--lang` outside `--ident`/`--rewrite`/`--rules`.
 - `-i`, `-S`, `-m`, `-F` with `--ident`/`--rename`/`--rewrite`/`--rules`
   (regex/case options are meaningless there; rejected rather than ignored).
 - `--plan` with `--apply`/`--accept-all`; `--check` with any apply flag or
@@ -154,10 +154,9 @@ run fails.
 
 ## `--languages` output
 
-One typed capability registry (implemented in REFAC-6) generates both the
-human matrix and `--languages --json`. Each row records grammar id+revision,
-license, extensions/shebangs, identifier roles, structural rewrite, local
-binding resolution, workspace/module resolution, symbol kinds, limitations and
-fixture IDs. Until REFAC-6 lands the binary reports text mode only and lists
-planned language rows as unsupported; a parser row is never reported as rename
-support.
+One typed capability registry (`src/lang.rs`, implemented in REFAC-6)
+generates both the human matrix and `--languages --json`. Each row records
+grammar bundle id, license, extensions, identifier roles, structural
+rewrite support, binding-resolution level, symbol kinds, limitations and
+fixture IDs. A parser row is never reported as rename support: `binding`
+is `"none"` until a language's resolver lands.
