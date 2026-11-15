@@ -1,0 +1,5 @@
+--rewrite
+uint bump;
+uint renamed;
+--apply
+{ROOT}

@@ -1,0 +1,5 @@
+--rewrite
+**bold**
+*bold*
+--apply
+{ROOT}

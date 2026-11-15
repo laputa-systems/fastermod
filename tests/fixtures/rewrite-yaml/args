@@ -1,0 +1,5 @@
+--rewrite
+bump: 1
+bump: 2
+--apply
+{ROOT}

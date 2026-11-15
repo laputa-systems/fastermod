@@ -1,0 +1,5 @@
+--rewrite
+<div $$$A>y</div>
+<span $$$A>y</span>
+--apply
+{ROOT}

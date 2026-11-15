@@ -1,0 +1,5 @@
+--rewrite
+ami = var.bump
+ami = var.renamed
+--apply
+{ROOT}
