@@ -132,16 +132,6 @@ fn record_ref(st: &mut State, name: &str, range: std::ops::Range<usize>, ns: Ns)
     });
 }
 
-fn record_ref_target(st: &mut State, range: std::ops::Range<usize>, target: Option<usize>) {
-    st.analysis.refs.push(RefSite {
-        name: range,
-        target,
-        expansion: None,
-        remote: false,
-        module_attr: None,
-    });
-}
-
 fn bind_node(st: &mut State, node: Node, ns: Ns) {
     bind(
         st,

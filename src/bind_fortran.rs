@@ -117,16 +117,6 @@ fn record_ref(st: &mut State, name: &str, range: std::ops::Range<usize>) {
     });
 }
 
-fn record_unresolved(st: &mut State, range: std::ops::Range<usize>) {
-    st.analysis.refs.push(RefSite {
-        name: range,
-        target: None,
-        expansion: None,
-        remote: false,
-        module_attr: None,
-    });
-}
-
 fn push(st: &mut State, kind: ScopeKind) {
     st.scopes.push(Scope {
         kind,

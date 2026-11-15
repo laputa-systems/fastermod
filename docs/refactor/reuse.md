@@ -1,7 +1,9 @@
 # REFAC-5 — Reuse spike results
 
-Date: 2026-11-15. Toolchain: `nightly-2026-11-09`. Spike code:
-`spikes/reuse-spike/` (detached Cargo workspace, vendored deps, not shipped).
+Date: 2026-11-15. Toolchain: `nightly-2026-11-09`. Spike code lived in
+`spikes/reuse-spike/` (detached Cargo workspace, vendored deps); it was
+removed after these findings were digested here and in the shipped
+`Grammar`/`LangSpec` design.
 
 ## What was exercised
 

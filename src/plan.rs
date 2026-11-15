@@ -209,7 +209,8 @@ pub(crate) fn text_span_edits(
 }
 
 /// Build a complete edit plan for text-mode substitution over `files`.
-pub(crate) fn build_text_plan(
+#[cfg(test)]
+fn build_text_plan(
     mode: &str,
     regex: &Regex,
     substitution: &Substitution,

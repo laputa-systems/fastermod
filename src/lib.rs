@@ -2,10 +2,10 @@
 //!
 //! Every invocation discovers and analyzes its inputs anew; there is no
 //! daemon, persistent index, or language-server subprocess. See
-//! docs/CAMPAIGN-STATELESS-REFACTOR.md and docs/refactor/cli.md.
+//! docs/refactor/cli.md and docs/languages.md.
 
-// Engine surfaces land incrementally across the refactor campaign; the
-// allow matches the previous include!-based layout.
+// Matches the previous include!-based layout; analyzer scope structs keep
+// fields (e.g. ScopeKind) that are written for symmetry but not yet read.
 #![allow(dead_code)]
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;

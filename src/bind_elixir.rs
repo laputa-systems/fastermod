@@ -120,17 +120,6 @@ fn lookup(st: &State, name: &str, ns: Ns) -> Option<usize> {
     None
 }
 
-fn record_ref(st: &mut State, name: &str, range: std::ops::Range<usize>, ns: Ns) {
-    let target = lookup(st, name, ns);
-    st.analysis.refs.push(RefSite {
-        name: range,
-        target,
-        expansion: None,
-        remote: false,
-        module_attr: None,
-    });
-}
-
 fn record_ref_target(st: &mut State, range: std::ops::Range<usize>, target: Option<usize>) {
     st.analysis.refs.push(RefSite {
         name: range,

@@ -336,16 +336,4 @@ fn walk_children(node: Node, st: &mut State) {
     }
 }
 
-fn walk_children_except_fields(st: &mut State, node: Node, skip: &[&str]) {
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-        if !child.is_named() {
-            continue;
-        }
-        let fname = node.field_name_for_child(i);
-        if fname.is_some_and(|f| skip.contains(&f)) {
-            continue;
-        }
-        walk(child, st);
-    }
-}
+

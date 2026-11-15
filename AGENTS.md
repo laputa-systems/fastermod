@@ -13,7 +13,7 @@ Rust CLI for reviewing or applying regular-expression substitutions across files
 
 ## Campaigns
 
-- Stateless polyglot refactoring: [campaign and launch prompt](docs/CAMPAIGN-STATELESS-REFACTOR.md), [execution ledger](TODO-REFACTOR.md). These describe planned work, not shipped features. Execute only when assigned; no daemon, persistent semantic index, or LSP dependency.
+- Stateless polyglot refactoring design notes: [docs/refactor/](docs/refactor/README.md); language coverage: [docs/languages.md](docs/languages.md). Invariants: no daemon, persistent semantic index, or LSP dependency.
 
 ## Topics
 
