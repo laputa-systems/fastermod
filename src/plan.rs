@@ -2,8 +2,8 @@
 //! consumed by review, JSON output, and application.
 //!
 //! A plan is invocation-local data, not a persisted index. `--plan` file
-//! serialization and stale-plan revalidation land with REFAC-12; the types
-//! and validation here are the contract they build on.
+//! serialization and stale-plan revalidation live here alongside the
+//! types and validation that are the contract they build on.
 
 use std::path::Component;
 use std::path::PathBuf;
@@ -933,10 +933,6 @@ mod apply_tests {
     }
 
 }
-
-// ---------------------------------------------------------------------------
-// REFAC-12: versioned plan serialization and stale-plan loading.
-// ---------------------------------------------------------------------------
 
 fn edit_json(edit: &SpanEdit) -> serde_json::Value {
     serde_json::json!({

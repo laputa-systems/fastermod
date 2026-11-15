@@ -26,7 +26,7 @@ fn json_path(path: &std::path::Path) -> String {
     json_string(&path.to_string_lossy())
 }
 
-/// Serialize an edit plan as the frozen JSON result schema v1
+/// Serialize an edit plan as the versioned JSON result schema v1
 /// (docs/refactor/cli.md). The string ends with a newline.
 pub(crate) fn plan_json_report(plan: &EditPlan) -> String {
     let mut out = String::new();

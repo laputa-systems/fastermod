@@ -16,8 +16,8 @@ The command definitions are in the [`Makefile`](../Makefile).
 
 `make install` builds a release binary and copies it to
 `~/.local/bin/fastermod`; on macOS it also applies ad hoc code signing.
-The `fastermod` library `include!`s `src/main.rs`, so `make bench` runs the
-same code as the binary.
+`src/main.rs` is a thin shim over `fastermod::run()`; `make bench` links
+the same library the binary uses.
 
 `make bench` uses `benches/baseline.json` and expects `../rustybench` by default.
 Set `RUSTYBENCH` to override that command. See [release builds](release.md)

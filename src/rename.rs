@@ -2,7 +2,8 @@
 //! must be unique across the analyzed files, or --at picks it), rewrites
 //! its declaration and resolved references, then re-parses and re-resolves
 //! the edited file to prove the rename preserved binding identity. Local
-//! rename covers the binding's own file; cross-file references are REFAC-8.
+//! rename covers the binding's own file; workspace rename expands across
+//! the analyzed module graph (see workspace.rs).
 
 use std::ops::Range;
 

@@ -710,8 +710,8 @@ fn walk_import(node: Node, st: &mut State, from: bool) {
 
 /// `import a` / `import a.b` / `import a.b as c` — binds the top module
 /// `a` (or the alias). Multi-segment unaliased imports bind `a` but the
-/// local rename of `a` has no preserving spelling, so — matching the
-/// REFAC-7 behavior — no binding is recorded for `import a.b`; the
+/// local rename of `a` has no preserving spelling, so no binding is
+/// recorded for `import a.b`; the
 /// module-object edge still lets `x.attr` chains resolve when an alias
 /// exists.
 fn walk_plain_import(node: Node, st: &mut State) {

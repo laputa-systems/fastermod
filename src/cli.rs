@@ -115,8 +115,8 @@ Options:
   -V, --version             Print version
 
 Without --apply/--accept-all on a non-terminal stdin, fastermod previews
-changes and exits without writing. See docs/refactor/cli.md for the frozen
-mode and exit-code contract."
+changes and exits without writing. See docs/refactor/cli.md for the mode
+and exit-code contract."
 }
 
 fn print_help_and_exit() {

@@ -55,8 +55,7 @@ Dev: `rustybench 0.5` (bench harness). Transitive closure is ~49 crates,
 all permissive (MIT/Apache-2.0/BSD/Unicode-DFS-2016 family); see
 `cargo tree`.
 
-FAST-7 resolution (per `docs/rfc/FAST-7-license-notices.md` recommended
-path): added `LICENSE-APACHE` with the verbatim Apache-2.0 text; `LICENSE`
+FAST-7 resolution: added `LICENSE-APACHE` with the verbatim Apache-2.0 text; `LICENSE`
 now states the MIT grant covers only files not already under Apache-2.0;
 `Cargo.toml` license is `MIT OR Apache-2.0`; Apache headers retained in
 `src/main.rs`/`src/terminal.rs`; `imara-histogram-diff` sources gained

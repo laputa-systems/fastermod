@@ -1,4 +1,4 @@
-# REFAC-13 qualification evidence
+# Qualification evidence
 
 Statelessness, correctness and portability checks for the refactoring CLI.
 All commands run against `target/debug/fastermod` on macOS (aarch64).
@@ -23,10 +23,7 @@ All commands run against `target/debug/fastermod` on macOS (aarch64).
 - Local musl build not re-verified here (`musl-cargo` absent on this host); CI matrix owns that gate. Windows is not advertised.
 - `cargo test`, `cargo check --workspace`, `cargo clippy --all-targets --all-features -- -D warnings` all green at commit `a4aadce`.
 
-## Known honest gaps (ledger REFAC-10/11)
+## Known honest gaps
 
-- Perl, Clojure, COBOL: no tree-sitter-0.27-compatible grammar crates — evidenced open.
-- Objective-C: syntax-only (message receiver types unresolvable).
-- OCaml-interface, F#-signature: syntax-only rows.
-- Vue/Svelte host grammars, SQLite/MySQL dialects: evidenced open (symbol collision / ABI / no crate).
-- `--rename` inside embedded regions: unsupported (per-file binding model).
+The living inventory is [docs/languages.md](../languages.md); this
+snapshot is dated.

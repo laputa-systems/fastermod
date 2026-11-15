@@ -1,4 +1,4 @@
-//! Cross-file (workspace) rename support for REFAC-8. Builds an
+//! Cross-file (workspace) rename support. Builds an
 //! invocation-local module graph over the analyzed files: import edges
 //! and `mod` declarations resolve to concrete files, symbol links are
 //! followed transitively, and a rename expands from the defining

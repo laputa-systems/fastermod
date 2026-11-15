@@ -227,8 +227,6 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         limitations: "same grammar as typescript with JSX enabled; angle-bracket type assertions are ambiguous with JSX and are not supported",
         fixtures: &["ident-tsx", "rewrite-tsx", "rename-typescript"],
     },
-    // ---- wave B (REFAC-9): syntax operations shipped; binding rows
-    // land per-language as analyzers are implemented. ----
     LangSpec {
         id: "go",
         extensions: &["go"],
@@ -568,9 +566,6 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         limitations: "VB is case-insensitive; rename preserves spelling case per occurrence",
         fixtures: &["ident-vb-dotnet", "rewrite-vb-dotnet", "rename-vb-dotnet"],
     },
-    // REFAC-11 structured assets: bundled data/markup grammars.
-    // ident stays off for data formats — keys are data, not lexical
-    // variables. binding stays None pending asset-specific analyzers.
     LangSpec {
         id: "css",
         extensions: &["css"],

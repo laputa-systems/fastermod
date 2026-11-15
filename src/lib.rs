@@ -11,7 +11,7 @@
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 pub(crate) type Result<T> = ::std::result::Result<T, Error>;
 
-/// Process exit carrying the frozen exit-code contract (docs/refactor/cli.md).
+/// Process exit carrying the exit-code contract (docs/refactor/cli.md).
 #[derive(Debug)]
 pub struct Failure {
     pub code: i32,

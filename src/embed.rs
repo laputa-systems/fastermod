@@ -6,7 +6,7 @@
 //!
 //! This is a syntactic host mapping only: it does not infer cross-language
 //! identity, and `--rename` is not supported inside embedded regions
-//! (binding analysis is per-file; region plumbing is REFAC-11 open work).
+//! (binding analysis is per-file).
 
 use std::ops::Range;
 use std::path::Path;

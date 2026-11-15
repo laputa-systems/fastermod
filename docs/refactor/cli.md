@@ -1,30 +1,9 @@
-# REFAC-2: CLI grammar and mode contracts (frozen)
+# CLI grammar and mode contracts
 
-Status: frozen. Implemented at `main`: full flag parsing and validation,
-non-TTY preview, `--dry-run`/`--check`/`--json`/`--apply` for text mode,
-`--languages`, frozen exit codes, `--ident`/`--rewrite` syntax engines for
-wave A (REFAC-6), local binding-aware `--rename` for the wave-A languages
-(REFAC-7), and exit-3 stubs for `--rules`, `--apply-plan`, `--plan`
-(engines land in REFAC-12/8).
-
-## Alternatives exercised
-
-Three operand shapes were compared against realistic transcripts
-(`fastermod OldName NewName src/`, `fastermod --rename foo bar . --at
-src/lib.rs:42:9`, `fastermod --rewrite 'old($$$ARGS)' 'new($$$ARGS)' --lang
-rust src/`, `fastermod --rules migration.toml . --dry-run`):
-
-1. **Mode flags (chosen).** `fastermod [OPTIONS] <OLD> <NEW> [PATH...]` with
-   mutually exclusive `--ident`, `--rename`, `--rewrite`, `--rules`,
-   `--apply-plan`, `--languages`. Preserves the established operand shape,
-   keeps every old invocation valid, and needs no reserved subcommands that
-   could collide with regex operands named `rename` or `text`.
-2. **Explicit subcommands** (`fastermod rename OLD NEW .`). Rejected: `rename`,
-   `text`, `apply` are plausible regex operands; a subcommand grammar would
-   silently reinterpret existing commands like `fastermod rename foo bar`.
-3. **Single `--mode` value** (`--mode rename`). Rejected: one flag carrying a
-   closed set is harder to validate per-mode (each mode has different
-   operands/flags) and produces worse errors than dedicated flags.
+This document is the contract for `fastermod`'s command line: operand
+shape, mode flags, validation, exit codes, and the JSON result schema.
+`--help` prints the same grammar; this file adds the rules help cannot
+carry.
 
 ## Grammar
 
@@ -38,9 +17,11 @@ fastermod --apply-plan <PLAN_FILE>
 fastermod --languages [--json]
 ```
 
-Mode flags are mutually exclusive; at most one may appear. `--rules` and
-`--apply-plan` and `--languages` take their file/operand as option values, so
-positionals after them are roots (default `.`).
+Mode flags are mutually exclusive; at most one may appear. `--rules`,
+`--apply-plan`, and `--languages` take their file or operand as option
+values, so positionals after them are roots (default `.`). Mode flags
+were chosen over subcommands because `rename`, `text`, and `apply` are
+plausible regex operands.
 
 ### Carried-over options
 
@@ -80,11 +61,15 @@ positionals after them are roots (default `.`).
 | `--apply-plan` | versioned saved plan | revalidated explicit write |
 
 There is no automatic fallback from `--rename` to `--ident` or text.
+File discovery prefilters on the literal OLD spelling for text and
+`--ident` only; `--rewrite` and `--rename` read every candidate file
+because patterns and cross-file dependencies have no reliable literal
+head.
 
 ## Validation rules (usage errors, exit 2)
 
 - More than one mode flag; missing/extra operands for the mode.
-- `--at` without `--rename`; `--lang` outside `--ident`/`--rewrite`/`--rules`.
+- `--at` without `--rename`; `--lang` outside `--ident`/`--rename`/`--rewrite`/`--rules`.
 - `-i`, `-S`, `-m`, `-F` with `--ident`/`--rename`/`--rewrite`/`--rules`
   (regex/case options are meaningless there; rejected rather than ignored).
 - `--plan` with `--apply`/`--accept-all`; `--check` with any apply flag or
@@ -95,7 +80,7 @@ There is no automatic fallback from `--rename` to `--ident` or text.
 
 ## Interactivity and exit codes
 
-Frozen exit codes:
+Exit codes:
 
 | Code | Meaning |
 | --- | --- |
@@ -109,7 +94,7 @@ Rules:
 
 - Interactive per-match review requires stdin to be a TTY **and** no apply
   flag. On a non-TTY stdin without `--apply`/`--accept-all`, the tool previews
-  diffs and exits 0 without writing — it never hangs or writes. `--dry-run`
+  diffs and exits 0 without writing; it never hangs or writes. `--dry-run`
   forces this on a TTY too.
 - `--json` selects machine output; review prompts are unavailable, so JSON
   runs preview unless `--apply`/`--accept-all` is given.
@@ -137,7 +122,7 @@ Rules:
   "edits": [
     {"path": "...", "byte_start": 0, "byte_end": 0, "applied": false,
      "anchor": {"line": 1, "column": 1, "excerpt": "..."},
-     "kind": "text | ident | rewrite | rename-reference | ..."}
+     "kind": "text | ident | rewrite | rename-reference | mixed | ..."}
   ],
   "diagnostics": [{"severity": "error | warning | info", "code": "...",
                    "message": "...", "path": "..."}]
@@ -155,10 +140,11 @@ run fails.
 
 ## `--languages` output
 
-One typed capability registry (`src/lang.rs`, implemented in REFAC-6)
+One typed capability registry (`src/lang.rs`)
 generates both the human matrix and `--languages --json`. Each row records
 grammar bundle id, license, extensions, identifier roles, structural
 rewrite support, binding-resolution level, symbol kinds, limitations and
 fixture IDs. A parser row is never reported as rename support: `binding`
 is `"none"` for languages whose resolver has not landed; `"local"` marks
-REFAC-7+ single-file binding renames and `"workspace"` marks REFAC-8 cross-file module-graph rename scope (wave A: rust, python, javascript, typescript, tsx).
+single-file binding renames and `"workspace"` marks cross-file
+module-graph rename scope (rust, python, javascript, typescript, tsx).

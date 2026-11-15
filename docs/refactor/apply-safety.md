@@ -33,7 +33,7 @@ not. This document is the normative companion to the plan/apply code in
   editors and builds make accidental hits unlikely but not impossible.
   There is no compare-and-swap primitive on POSIX filesystems that would
   close this without mandatory locking; we document rather than pretend.
-- Saved plans (`--plan`/`--apply-plan`, REFAC-12) extend the same model:
+- Saved plans (`--plan`/`--apply-plan`) extend the same model:
   apply revalidates hashes and roots and rejects stale plans instead of
   replanning.
 
@@ -44,7 +44,7 @@ not. This document is the normative companion to the plan/apply code in
   file is refused, never written through.
 - Hardlinked files: the rename-replace strategy swaps only the edited
   directory entry. Other hardlinked names keep the old inode and old
-  content. This is deliberate — it never propagates an edit to names the
+  content. This is deliberate: it never propagates an edit to names the
   operation did not analyze, and it cannot corrupt the shared inode.
 - FIFOs, sockets, devices and directories are never matched or written.
 
@@ -68,8 +68,8 @@ not. This document is the normative companion to the plan/apply code in
   remain in the target directory. These are ordinary dotfiles, safe to
   delete; no daemon or index is involved.
 - There is no automatic rollback. Recovery is: inspect the apply report
-  (stderr message and JSON `applied` flags), then re-run the operation —
-  staleness checks make re-running safe against the already-written
+  (stderr message and JSON `applied` flags), then re-run the operation.
+  Staleness checks make re-running safe against the already-written
   files only if the pattern no longer matches them; otherwise restore
   from version control manually. fastermod never runs `git reset`,
   `git clean`, or checkout-based rollback.

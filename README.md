@@ -44,8 +44,10 @@ For each match, fastermod displays a diff and asks what to do. Press Enter or
 remaining matches, `E` to accept and edit, or `q` to quit. Editing uses
 `$EDITOR`, defaulting to `vim`.
 
-For unattended changes, add `--accept-all`. `--print-changed-files` prints
-changed paths; it is useful with `--accept-all` in scripts. Use `-F` or
+For unattended changes, add `--apply` (or `--accept-all`). `--dry-run`
+previews without writing and `--check` exits 1 when changes are pending.
+`--json` emits a machine-readable result. `--print-changed-files` prints
+changed paths; it is useful with `--apply` in scripts. Use `-F` or
 `--fixed-strings` when the search text should be treated literally, and
 `--help` for case, multiline, extension, glob, hidden-file, and ignore options.
 
@@ -56,7 +58,7 @@ binding-aware rename. Every invocation re-analyzes sources in memory;
 there is no daemon, index, watcher, or persistent state.
 
 - `--ident OLD NEW`: replace every identifier token spelled `OLD`.
-  Syntactic only — it does not resolve bindings.
+  Syntactic only. It does not resolve bindings.
 - `--rewrite PATTERN REPLACEMENT`: ast-grep structural rewrite. `PATTERN`
   uses `$VAR`/`$$$ARGS` metavariables; `REPLACEMENT` is an ast-grep
   template. Still a syntax operation, not a rename.
@@ -76,7 +78,7 @@ there is no daemon, index, watcher, or persistent state.
 
 Safety boundaries: edits are planned as byte spans with expected content
 hashes; apply refuses symlinks, non-regular files, path escapes, and
-stale inputs. Unsupported constructs produce explicit diagnostics —
+stale inputs. Unsupported constructs produce explicit diagnostics,
 never silent text fallbacks. `--lang LANG` forces a grammar for
 extension-ambiguous files (`.m`, `.sql`, signature files).
 
