@@ -1,0 +1,7 @@
+--rename
+count
+total
+--at
+a.rb:5:1
+--apply
+{ROOT}

@@ -197,10 +197,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Ruby,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-ruby)",
-        limitations: "metaprogramming (eval, method_missing, const_missing) is invisible to syntax matching",
-        fixtures: &["ident-ruby", "rewrite-ruby"],
+        limitations: "metaprogramming (eval, method_missing, define_method, attr_accessor-generated methods) is invisible; obj.m() on unknown receivers blocks; require/include resolution unsupported",
+        fixtures: &["ident-ruby", "rewrite-ruby", "rename-ruby"],
     },
     LangSpec {
         id: "dart",
