@@ -58,9 +58,6 @@ const TYPE_KINDS: &[&str] = &[
     "enum_class_declaration",
 ];
 
-/// Kinds whose direct `class_body`/`declaration` children form a member
-/// scope — handled uniformly with TYPE_KINDS above.
-
 const FN_KINDS: &[&str] = &[
     "function_declaration",
     "secondary_constructor",
@@ -231,8 +228,7 @@ fn walk(node: Node, st: &mut State) {
                 // Distinguish: the name is the first named child.
                 let is_first = node
                     .children(&mut node.walk())
-                    .filter(|c| c.is_named())
-                    .next()
+                    .find(|c| c.is_named())
                     .is_some_and(|c| c.id() == child.id());
                 if is_first {
                     bind_node(st, child, Ns::Var);
@@ -401,23 +397,13 @@ fn walk(node: Node, st: &mut State) {
 }
 
 fn first_named_of_kind<'a>(node: Node<'a>, kinds: &[&str]) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.is_named() && kinds.contains(&child.kind()) {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut node.walk())
+        .find(|c| c.is_named() && kinds.contains(&c.kind()))
 }
 
 fn find_child<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.is_named() && child.kind() == kind {
-            return Some(child);
-        }
-    }
-    None
+    node.children(&mut node.walk())
+        .find(|c| c.is_named() && c.kind() == kind)
 }
 
 /// After binding a function's name, walk children skipping that first
