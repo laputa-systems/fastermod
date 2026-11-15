@@ -102,7 +102,7 @@ Options:
       --iglob <IGLOB>       A space-delimited list of case-insensitive globs to process
       --at <ANCHOR>         Select the rename target: FILE:LINE:COL (1-based line,
                            1-based UTF-8 byte column). --rename only.
-      --lang <LANG>         Force a language/grammar (repeatable). --rewrite/--rules.
+      --lang <LANG>         Force a language/grammar (repeatable). --ident/--rename/--rewrite/--rules.
       --apply               Write accepted changes without review
       --accept-all          Same as --apply (legacy spelling)
       --dry-run             Preview changes; never write
@@ -260,8 +260,12 @@ fn parse_args_inner() -> Result<Args> {
         "--at is only valid with --rename"
     );
     ensure!(
-        langs.is_empty() || matches!(mode, Mode::Ident | Mode::Rewrite | Mode::Rules),
-        "--lang is only valid with --ident, --rewrite or --rules"
+        langs.is_empty()
+            || matches!(
+                mode,
+                Mode::Ident | Mode::Rewrite | Mode::Rules | Mode::Rename
+            ),
+        "--lang is only valid with --ident, --rename, --rewrite or --rules"
     );
     ensure!(
         plan.is_none() || !matches!(mode, Mode::ApplyPlan | Mode::Languages),

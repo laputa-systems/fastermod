@@ -545,11 +545,11 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         grammar: Grammar::Raw(tree_sitter_matlab::LANGUAGE),
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         ident_kinds: &[],
         license: "MIT (tree-sitter-matlab)",
         limitations: ".m files are claimed by objective-c first; select with --lang matlab; Octave dialect and function-handle dispatch are not modeled",
-        fixtures: &["ident-matlab", "rewrite-matlab"],
+        fixtures: &["ident-matlab", "rewrite-matlab", "rename-matlab"],
     },
     LangSpec {
         id: "vb-dotnet",
@@ -693,6 +693,7 @@ pub(crate) fn detect(path: &Path, overrides: &[String]) -> Option<&'static LangS
 pub(crate) fn is_identifier_kind(kind: &str) -> bool {
     kind == "identifier" || kind.ends_with("_identifier")
 }
+
 
 
 

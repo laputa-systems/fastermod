@@ -61,6 +61,7 @@ mod bind_vb;
 mod bind_ocaml;
 mod bind_fsharp;
 mod bind_fortran;
+mod bind_matlab;
 mod bind_haskell;
 mod bind_julia;
 mod bind_r;
