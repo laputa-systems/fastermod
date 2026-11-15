@@ -120,10 +120,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::C,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-c)",
-        limitations: ".h files are analyzed as C; preprocessor directives are not semantic sites",
-        fixtures: &["ident-c", "rewrite-c"],
+        limitations: ".h files are analyzed as C; preprocessor directives are not semantic sites; struct/union member access (s.x, p->x) blocks member renames; cross-file resolution is not modeled",
+        fixtures: &["ident-c", "rewrite-c", "rename-c"],
     },
     LangSpec {
         id: "cpp",
