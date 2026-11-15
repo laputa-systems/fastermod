@@ -112,6 +112,15 @@ pub(crate) fn plan_json_report(plan: &EditPlan) -> String {
     out
 }
 
+fn symbol_kinds_str(binding: crate::lang::BindingSupport) -> &'static str {
+    match binding {
+        crate::lang::BindingSupport::None => "unresolved until binding engine lands",
+        crate::lang::BindingSupport::Local => {
+            "lexical declarations and resolved references (single file)"
+        }
+    }
+}
+
 fn binding_str(binding: crate::lang::BindingSupport) -> &'static str {
     match binding {
         crate::lang::BindingSupport::None => "none",
@@ -126,7 +135,7 @@ pub(crate) fn languages_report(json: bool) -> String {
         let mut out = String::new();
         out.push_str("{\"schema\":1,\"grammar_bundle\":");
         out.push_str(&json_string(crate::lang::GRAMMAR_BUNDLE));
-        out.push_str(",\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rename\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-7\"},\"rewrite\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rules\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"},\"apply-plan\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"}},\"languages\":[");
+        out.push_str(",\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rename\":{\"status\":\"available\",\"engine\":\"binding\",\"scope\":\"local-file\"},\"rewrite\":{\"status\":\"available\",\"engine\":\"syntax\"},\"rules\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"},\"apply-plan\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"}},\"languages\":[");
         for (i, spec) in crate::lang::LANGUAGES.iter().enumerate() {
             if i > 0 {
                 out.push(',');
@@ -148,7 +157,7 @@ pub(crate) fn languages_report(json: bool) -> String {
                 spec.rewrite,
                 json_string(binding_str(spec.binding)),
                 json_string("identifier or *_identifier"),
-                json_string("unresolved until binding engine lands"),
+                json_string(symbol_kinds_str(spec.binding)),
                 json_string(spec.limitations),
             ));
             for (j, fixture) in spec.fixtures.iter().enumerate() {
@@ -171,7 +180,7 @@ pub(crate) fn languages_report(json: bool) -> String {
     out.push_str("modes:\n");
     out.push_str("  text       available (regex/literal substitution)\n");
     out.push_str("  ident      available (syntax-aware identifier tokens)\n");
-    out.push_str("  rename     unavailable (REFAC-7/8)\n");
+    out.push_str("  rename     available (binding-aware local rename; workspace scope is REFAC-8)\n");
     out.push_str("  rewrite    available (structural pattern rewrite)\n");
     out.push_str("  rules      unavailable (REFAC-12)\n");
     out.push_str("  apply-plan unavailable (REFAC-12)\n");

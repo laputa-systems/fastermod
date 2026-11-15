@@ -16,6 +16,12 @@ grep = "0.4"
 ignore = "0.4.1"
 imara-histogram-diff = { path = "imara-histogram-diff" }
 lexopt = "0.3.2"
+oxc_allocator = "0.158"
+oxc_ast = "0.158"
+oxc_parser = "0.158"
+oxc_semantic = "0.158"
+oxc_span = "0.158"
+oxc_syntax = "0.158"
 regex-lite = "0.1.9"
 tree-sitter = "0.27"
 

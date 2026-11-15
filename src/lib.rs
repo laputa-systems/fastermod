@@ -54,6 +54,10 @@ macro_rules! ensure {
     };
 }
 
+mod bind;
+mod bind_js;
+mod bind_py;
+mod bind_rs;
 mod cli;
 mod diff;
 mod discovery;
@@ -61,6 +65,7 @@ mod engine;
 mod lang;
 mod output;
 mod plan;
+mod rename;
 mod review;
 mod source;
 mod syntax;

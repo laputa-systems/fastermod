@@ -51,7 +51,7 @@ fn parse(spec: &LangSpec, contents: &str) -> Option<AstGrep<StrDoc<SupportLang>>
     Some(root)
 }
 
-fn finish_file(file: &SourceFile, edits: Vec<SpanEdit>) -> Option<PlannedFile> {
+pub(crate) fn finish_file(file: &SourceFile, edits: Vec<SpanEdit>) -> Option<PlannedFile> {
     if edits.is_empty() {
         return None;
     }

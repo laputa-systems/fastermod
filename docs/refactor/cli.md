@@ -3,8 +3,9 @@
 Status: frozen. Implemented at `main`: full flag parsing and validation,
 non-TTY preview, `--dry-run`/`--check`/`--json`/`--apply` for text mode,
 `--languages`, frozen exit codes, `--ident`/`--rewrite` syntax engines for
-wave A (REFAC-6), and exit-3 stubs for `--rename`, `--rules`,
-`--apply-plan`, `--plan` (engines land in REFAC-7/8/12).
+wave A (REFAC-6), local binding-aware `--rename` for the wave-A languages
+(REFAC-7), and exit-3 stubs for `--rules`, `--apply-plan`, `--plan`
+(engines land in REFAC-12/8).
 
 ## Alternatives exercised
 
@@ -159,4 +160,5 @@ generates both the human matrix and `--languages --json`. Each row records
 grammar bundle id, license, extensions, identifier roles, structural
 rewrite support, binding-resolution level, symbol kinds, limitations and
 fixture IDs. A parser row is never reported as rename support: `binding`
-is `"none"` until a language's resolver lands.
+is `"none"` for languages whose resolver has not landed; `"local"` marks
+REFAC-7 single-file binding renames and `"workspace"` marks REFAC-8+ scope.

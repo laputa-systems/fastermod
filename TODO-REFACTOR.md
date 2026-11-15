@@ -167,6 +167,34 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Build invocation-local scopes/bindings/references and exact symbol selection. Implement language-specific scope rules, destination validity, collision/capture detection in both directions, shorthand expansion, and post-edit binding equivalence. Include real Rust/Python/JS/TS local success cases, not only refusals.
 - **Accept:** Nested unrelated same-name bindings stay untouched; introduced names cannot capture old references; ambiguous/macro/dynamic cases fail explicitly when relevant. Before/after binding mapping is checked. No name-only fallback, confidence cutoff or semantic --force escape.
 - **Effort:** L
+- **Done:** `--rename OLD NEW` dispatches to `src/rename.rs`, which
+  selects one binding (unique spelling or `--at path:line:col` on the
+  declaration or any resolved reference), emits typed
+  `RenameReference` span edits, then re-parses and re-resolves the
+  edited file (`verify_rename`) proving the renamed binding keeps its
+  reference count at intentionally edited positions and every other
+  binding keeps declaration site and reference count — capture,
+  unbinding and parse failure all refuse. Per-language analyzers:
+  `src/bind_js.rs` (oxc semantic, exact unresolved sets, import/export/
+  shorthand expansions), `src/bind_py.rs` (tree-sitter scope walk:
+  module/function/lambda/class/comprehension scopes, `global`/
+  `nonlocal` redirects, walrus, import forms; `import *` and `match`
+  patterns mark analysis inexact), `src/bind_rs.rs` (tree-sitter arena
+  scopes with item hoisting, let/pattern/closure/for bindings, `use`
+  trees, module-path resolution `m::f`/`self::`/`crate::`, struct
+  shorthand, method-call blocking; macro token identifiers recorded as
+  unresolved so macro-covered spellings always block). Coupled syntax
+  uses `Expansion` templates (`ShorthandColon`, `ImportAlias`,
+  `ExportAlias`) so `{ x }`→`{ x: NEW }`, `import { x }`→`{ x as NEW }`,
+  `export { x }`→`{ NEW as x }`, `use m::x`→`use m::NEW as x` preserve
+  the second meaning. `RefSite.remote` marks other-namespace path
+  segments that cannot refer to lexical bindings. Registry now reports
+  `binding:"local"` for rust/python/javascript/typescript/tsx.
+  Fixtures: rename-javascript (shorthand+export+import), rename-python
+  (global/nonlocal), rename-rust (`use` cascade `use m::renamed as
+  target`), rename-typescript, rename-ambiguous and rename-blocked
+  (macro) exit-3 cases. `cargo test --workspace`, clippy `-D warnings`,
+  `cargo check --workspace` pass.
 
 ### REFAC-8 · P1 · Resolve ordinary workspace renames for the first wave
 

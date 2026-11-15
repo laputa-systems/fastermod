@@ -1,0 +1,7 @@
+--rename
+target
+renamed
+--at
+a.rs:1:16
+--apply
+{ROOT}

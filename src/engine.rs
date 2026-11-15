@@ -225,11 +225,12 @@ fn run_syntax_pipeline(
     interactive: bool,
     roots: &[String],
     langs: &[String],
+    at_anchor: Option<&str>,
 ) -> std::result::Result<i32, Failure> {
     // Discovery prefilter: --ident can require the literal OLD bytes;
     // --rewrite patterns have no reliable literal head, so every candidate
     // file is read (correctness first; REFAC-14 owns performance).
-    let matcher = if mode == Mode::Ident {
+    let matcher = if matches!(mode, Mode::Ident | Mode::Rename) {
         RegexMatcherBuilder::new()
             .build(&regex_lite::escape(pattern))
             .map_err(|e| Failure::usage(format!("Unable to make matcher: {e}")))?
@@ -243,6 +244,13 @@ fn run_syntax_pipeline(
     let run = match mode {
         Mode::Ident => syntax::run_ident(pattern, replacement, &files, langs)?,
         Mode::Rewrite => syntax::run_rewrite(pattern, replacement, &files, langs)?,
+        Mode::Rename => crate::rename::run_rename(
+            pattern,
+            replacement,
+            &files,
+            at_anchor,
+            langs,
+        )?,
         _ => unreachable!(),
     };
     let plan = plan::assemble_plan(
@@ -303,7 +311,6 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
         return Ok(0);
     }
     for (unimplemented, flag) in [
-        (mode == Mode::Rename, "--rename"),
         (mode == Mode::Rules, "--rules"),
         (mode == Mode::ApplyPlan, "--apply-plan"),
     ] {
@@ -319,7 +326,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             "--plan is not yet implemented in this build",
         ));
     }
-    let _ = (apply_plan, rules_file, at_anchor);
+    let _ = (apply_plan, rules_file);
 
     let dirs = {
         let mut dirs: Vec<_> = dir
@@ -349,7 +356,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
 
     // Syntax modes dispatch before any regex is compiled; `match_regex` and
     // `subst` still hold the raw OLD/NEW positionals here.
-    if matches!(mode, Mode::Ident | Mode::Rewrite) {
+    if matches!(mode, Mode::Ident | Mode::Rewrite | Mode::Rename) {
         let apply = accept_all || apply;
         let interactive = !apply
             && !dry_run
@@ -373,6 +380,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             interactive,
             &roots,
             &langs,
+            at_anchor.as_deref(),
         );
     }
 
