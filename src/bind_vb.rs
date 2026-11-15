@@ -117,11 +117,11 @@ fn record_unresolved(st: &mut State, range: std::ops::Range<usize>) {
 }
 
 fn bind_field(st: &mut State, node: Node, field: &str) {
-    if let Some(n) = node.child_by_field_name(field) {
-        if n.kind() == "identifier" {
-            let name = text(st.contents, n);
-            bind(st, name, n.start_byte()..n.end_byte());
-        }
+    if let Some(n) = node.child_by_field_name(field)
+        && n.kind() == "identifier"
+    {
+        let name = text(st.contents, n);
+        bind(st, name, n.start_byte()..n.end_byte());
     }
 }
 
@@ -170,10 +170,10 @@ fn walk(node: Node, st: &mut State) {
                         if let Some(obj) = target.child_by_field_name("object") {
                             walk(obj, st);
                         }
-                        if let Some(member) = target.child_by_field_name("member") {
-                            if member.kind() == "identifier" {
-                                record_unresolved(st, member.start_byte()..member.end_byte());
-                            }
+                        if let Some(member) = target.child_by_field_name("member")
+                            && member.kind() == "identifier"
+                        {
+                            record_unresolved(st, member.start_byte()..member.end_byte());
                         }
                     }
                     _ => walk(target, st),
@@ -188,10 +188,10 @@ fn walk(node: Node, st: &mut State) {
             if let Some(obj) = node.child_by_field_name("object") {
                 walk(obj, st);
             }
-            if let Some(member) = node.child_by_field_name("member") {
-                if member.kind() == "identifier" {
-                    record_unresolved(st, member.start_byte()..member.end_byte());
-                }
+            if let Some(member) = node.child_by_field_name("member")
+                && member.kind() == "identifier"
+            {
+                record_unresolved(st, member.start_byte()..member.end_byte());
             }
             return;
         }
