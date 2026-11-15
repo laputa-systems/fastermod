@@ -1,6 +1,6 @@
 # Stateless polyglot refactoring campaign
 
-Status: ready to execute; this commit is the campaign, not its implementation.
+Status: executed — see TODO-REFACTOR.md for the closed ledger and per-ticket evidence.
 Created: 2026-11-15. Repository: `laputa-systems/fastermod`.
 Execution ledger: [TODO-REFACTOR.md](../TODO-REFACTOR.md).
 
