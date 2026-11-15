@@ -67,6 +67,7 @@ mod bind_lua;
 mod bind_php;
 mod bind_py;
 mod bind_dart;
+mod bind_elixir;
 mod bind_rs;
 mod bind_swift;
 mod bind_zig;
