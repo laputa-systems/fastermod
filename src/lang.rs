@@ -473,11 +473,11 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         grammar: Grammar::Raw(tree_sitter_ocaml::LANGUAGE_OCAML),
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         ident_kinds: &["value_name", "type_constructor", "constructor_name"],
         license: "MIT (tree-sitter-ocaml)",
         limitations: "module system, functors and GADTs are only partially modeled",
-        fixtures: &["ident-ocaml", "rewrite-ocaml"],
+        fixtures: &["ident-ocaml", "rewrite-ocaml", "rename-ocaml"],
     },
     LangSpec {
         id: "ocaml-interface",
@@ -693,5 +693,6 @@ pub(crate) fn detect(path: &Path, overrides: &[String]) -> Option<&'static LangS
 pub(crate) fn is_identifier_kind(kind: &str) -> bool {
     kind == "identifier" || kind.ends_with("_identifier")
 }
+
 
 

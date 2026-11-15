@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+a.ml:2:5
+--apply
+{ROOT}
