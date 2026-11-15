@@ -533,11 +533,11 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         grammar: Grammar::Raw(tree_sitter_fortran::LANGUAGE),
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         ident_kinds: &["name"],
         license: "MIT (tree-sitter-fortran)",
         limitations: "fixed-form and F77 are not supported; Fortran semantics (argument aliasing, sequence association) are not modeled",
-        fixtures: &["ident-fortran", "rewrite-fortran"],
+        fixtures: &["ident-fortran", "rewrite-fortran", "rename-fortran"],
     },
     LangSpec {
         id: "matlab",
@@ -693,6 +693,7 @@ pub(crate) fn detect(path: &Path, overrides: &[String]) -> Option<&'static LangS
 pub(crate) fn is_identifier_kind(kind: &str) -> bool {
     kind == "identifier" || kind.ends_with("_identifier")
 }
+
 
 
 

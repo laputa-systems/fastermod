@@ -1,0 +1,7 @@
+--rename
+bump
+renamed
+--at
+a.f90:3:20
+--apply
+{ROOT}

@@ -41,6 +41,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "vb-dotnet" => crate::bind_vb::analyze(spec, contents, path),
         "ocaml" => crate::bind_ocaml::analyze(spec, contents, path),
         "fsharp" => crate::bind_fsharp::analyze(spec, contents, path),
+        "fortran" => crate::bind_fortran::analyze(spec, contents, path),
         "php" => crate::bind_php::analyze(spec, contents, path),
         "ruby" => crate::bind_ruby::analyze(spec, contents, path),
         _ => None,
