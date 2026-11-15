@@ -1,0 +1,7 @@
+# REFAC-5 spike: dependencies are vendored (see vendor/ and VENDOR.md) so the
+# spike builds offline and independently of the repo's partial crates mirror.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"

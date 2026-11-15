@@ -110,6 +110,18 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Compare ast-grep library reuse, direct Tree-sitter queries and relevant srgn patterns. Exercise maintained semantic candidates, including Oxc for JS/TS, and inspect scope/stack-graph approaches with current maintenance and grammar compatibility. Use executable representative rename cases; reject LSP dependencies and hidden runtimes. Do not adopt archived stack-graphs blindly.
 - **Accept:** A bounded, evidence-backed choice with real code, licenses, dependency/portability findings and unresolved semantics; core interfaces support both syntax and binding engines. Do not leave multiple speculative backends or turn this into an endless research ticket.
 - **Effort:** M
+- **Done:** Executable spike at `spikes/reuse-spike/` (vendored deps,
+  gitignored). Decision in `docs/refactor/reuse.md`: `ast-grep-core` +
+  `ast-grep-language` 0.51.2 for structural matching/rewriting (proven:
+  metavar pattern, comment decoy ignored, byte-range edits, 26
+  feature-gated grammars, path->language detection); `oxc_*` 0.158.0 for
+  JS/TS binding semantics (proven: scopes, symbol spans, resolved
+  references); direct `tree-sitter` 0.27 + grammar crates for wave B/C
+  languages outside ast-grep's set; explicit per-language resolver for
+  non-JS/TS bindings. `srgn` reviewed and rejected as dependency
+  (binary-first, narrow); `stack-graphs` rejected (archived). All MIT.
+  Flagged: repo crates mirror lacks these crates — adoption needs mirror
+  update or deliberate vendoring (REFAC-6).
 
 ### REFAC-6 · P1 · Ship identifier and structural modes with a real registry
 
