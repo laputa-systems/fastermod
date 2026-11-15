@@ -1,0 +1,5 @@
+-F
+foo+bar
+baz
+--accept-all
+{ROOT}

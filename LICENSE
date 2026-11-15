@@ -1,3 +1,9 @@
+This repository is dual-licensed. Files that carry an Apache-2.0 header
+(including the `imara-histogram-diff` crate, extracted from `imara-diff`)
+are licensed under the Apache License, Version 2.0, reproduced in
+`LICENSE-APACHE`. All other files are licensed under the MIT License below,
+which does not apply to files already covered by `LICENSE-APACHE`.
+
 MIT License
 
 Copyright (c) 2026 joshuarli

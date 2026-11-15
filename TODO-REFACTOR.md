@@ -1,9 +1,9 @@
 Prefix: REFAC
-Next: 16
+Next: 2
 
 # Stateless polyglot refactoring campaign ledger
 
-Status: not started. Contract and launch prompt:
+Status: in progress. Contract and launch prompt:
 [docs/CAMPAIGN-STATELESS-REFACTOR.md](docs/CAMPAIGN-STATELESS-REFACTOR.md).
 
 This ledger tracks execution, not shipped functionality. Take the lowest-numbered
@@ -14,10 +14,18 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 
 ## Report
 
-Not started. On execution record base/head, implemented capability rows,
-commands/results, fixture IDs, runtime-statelessness proof, benchmark method,
-limitations and next unblocked ticket. No test or implementation is claimed by
-the creation of this ledger.
+- REFAC-1 done (see evidence below). Base `365cd94`; HEAD at commit time is
+  the REFAC-1 commit on `main`.
+- Verification: `make build`, `make test` (24 unit tests x2 targets + fixture
+  suite), `cargo check --workspace`, `make lint` all pass; `make bench` ran
+  and refreshed `benches/baseline.json` (large positive deltas on
+  `patch_single_1mb_file`/`run_fast_match_100_files` recorded in
+  `docs/refactor/baseline.md` for REFAC-14).
+- Implemented: dual-license resolution (LICENSE-APACHE, `MIT OR
+  Apache-2.0`), directory-driven fixture runner `tests/fixtures.rs` with 5
+  seed cases including smartcase coverage (FAST-8).
+- Limitations: non-TTY preview behavior, `--ident`/`--rename`/`--rewrite`,
+  JSON output and plans do not exist yet; those are REFAC-2+ scope.
 
 ## Tickets
 
@@ -29,6 +37,11 @@ the creation of this ledger.
 - **Work:** Read live HEAD; establish text/interactive/smartcase/ignore and file-write witnesses, actual test/build commands, dependency/license inventory, and measured baseline where tools exist. Coordinate with deslop and FAST-7. Set up a fixture runner suitable for later engines without prescribing a large framework.
 - **Accept:** Reproducible baseline and meaningful positive/negative CLI tests; current failures/environment gaps distinguished; short evidence report under docs/refactor/. Existing behavior is not assumed from README alone.
 - **Effort:** M
+- **Done:** Evidence in `docs/refactor/baseline.md`. Fixture runner at
+  `tests/fixtures.rs` + `tests/fixtures/` (cases: text-basic,
+  text-fixed-strings, text-smartcase, text-ignore, interactive-decline).
+  FAST-7 resolved via dual-license files and manifest. Bench deltas recorded
+  as pre-existing/environmental.
 
 ### REFAC-2 · P1 · Choose a small CLI and explicit mode contracts
 

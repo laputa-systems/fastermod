@@ -7,7 +7,7 @@ name = "fastermod"
 version = "0.0.1"
 edition = "2024"
 description = "A fast partial replacement for codemod"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 grep = "0.4"
