@@ -219,10 +219,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Lua,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-lua)",
-        limitations: "",
-        fixtures: &["ident-lua", "rewrite-lua"],
+        limitations: "dynamic global resolution (_ENV, load, setfenv, rawset on _G) is invisible; unresolved same-name occurrences block rename",
+        fixtures: &["ident-lua", "rewrite-lua", "rename-lua"],
     },
     LangSpec {
         id: "bash",

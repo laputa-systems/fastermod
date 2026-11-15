@@ -21,6 +21,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "python" => crate::bind_py::analyze(spec, contents, path),
         "rust" => crate::bind_rs::analyze(spec, contents, path),
         "go" => crate::bind_go::analyze(spec, contents, path),
+        "lua" => crate::bind_lua::analyze(spec, contents, path),
         _ => None,
     }
 }

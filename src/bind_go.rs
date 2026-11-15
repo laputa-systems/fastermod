@@ -188,13 +188,14 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "var_spec" | "const_spec" => {
-            bind_name_fields(st, node);
+            // Value/type expressions precede the spec's scope.
             if let Some(v) = node.child_by_field_name("value") {
                 walk(v, st);
             }
             if let Some(t) = node.child_by_field_name("type") {
                 walk_type_only(t, st);
             }
+            bind_name_fields(st, node);
             return;
         }
         "type_declaration" => {
@@ -215,18 +216,20 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "parameter_declaration" => {
-            bind_name_fields(st, node);
             if let Some(t) = node.child_by_field_name("type") {
                 walk_type_only(t, st);
             }
+            bind_name_fields(st, node);
             return;
         }
         "short_var_declaration" => {
-            if let Some(left) = node.child_by_field_name("left") {
-                bind_expr_list(st, left);
-            }
+            // RHS is evaluated before the new bindings scope begins
+            // (`a, b := b, a` swaps outer values).
             if let Some(right) = node.child_by_field_name("right") {
                 walk(right, st);
+            }
+            if let Some(left) = node.child_by_field_name("left") {
+                bind_expr_list(st, left);
             }
             return;
         }

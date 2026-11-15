@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+a.lua:1:16
+--apply
+{ROOT}
