@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+a.fs:2:5
+--apply
+{ROOT}
