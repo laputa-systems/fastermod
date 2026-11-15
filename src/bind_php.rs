@@ -136,7 +136,7 @@ fn var_scope(st: &State) -> usize {
         .unwrap_or(0)
 }
 
-fn lookup<'a>(st: &'a State, name: &str, ns: Ns) -> Option<usize> {
+fn lookup(st: &State, name: &str, ns: Ns) -> Option<usize> {
     for s in st.scopes.iter().rev() {
         let map = match ns {
             Ns::Var => {
@@ -425,10 +425,11 @@ fn walk(node: Node, st: &mut State) {
             // `global $x` refers to the program scope.
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
-                if child.is_named() && child.kind() == "variable_name" {
-                    if let Some((name, range)) = var_name(st, child) {
-                        record_ref_target(st, range, lookup_root_var(st, &name));
-                    }
+                if child.is_named()
+                    && child.kind() == "variable_name"
+                    && let Some((name, range)) = var_name(st, child)
+                {
+                    record_ref_target(st, range, lookup_root_var(st, &name));
                 }
             }
             return;
@@ -477,8 +478,7 @@ fn walk(node: Node, st: &mut State) {
                 p.kind().contains("scoped")
                     && p
                         .children(&mut p.walk())
-                        .filter(|c| c.is_named())
-                        .next()
+                        .find(|c| c.is_named())
                         .is_some_and(|c| matches!(text(st.contents, c), "self" | "static" | "parent"))
             });
             if scoped_self {
