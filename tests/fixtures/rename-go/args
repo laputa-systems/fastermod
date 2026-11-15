@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+a.go:3:6
+--apply
+{ROOT}

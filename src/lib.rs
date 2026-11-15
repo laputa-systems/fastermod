@@ -55,6 +55,7 @@ macro_rules! ensure {
 }
 
 mod bind;
+mod bind_go;
 mod bind_js;
 mod bind_py;
 mod bind_rs;

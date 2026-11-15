@@ -109,10 +109,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Go,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-go)",
-        limitations: "",
-        fixtures: &[],
+        limitations: "method names, struct/interface field names and selector fields are separate namespaces and are not rename sites; cross-file package rename is not supported",
+        fixtures: &["ident-go", "rewrite-go", "rename-go"],
     },
     LangSpec {
         id: "c",
@@ -123,7 +123,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-c)",
         limitations: ".h files are analyzed as C; preprocessor directives are not semantic sites",
-        fixtures: &[],
+        fixtures: &["ident-c", "rewrite-c"],
     },
     LangSpec {
         id: "cpp",
@@ -134,7 +134,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-cpp)",
         limitations: "preprocessor directives and template instantiations are matched syntactically only",
-        fixtures: &[],
+        fixtures: &["ident-cpp", "rewrite-cpp"],
     },
     LangSpec {
         id: "java",
@@ -145,7 +145,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-java)",
         limitations: "",
-        fixtures: &[],
+        fixtures: &["ident-java", "rewrite-java"],
     },
     LangSpec {
         id: "csharp",
@@ -156,7 +156,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-c-sharp)",
         limitations: "",
-        fixtures: &[],
+        fixtures: &["ident-csharp", "rewrite-csharp"],
     },
     LangSpec {
         id: "kotlin",
@@ -167,7 +167,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-kotlin)",
         limitations: "",
-        fixtures: &[],
+        fixtures: &["ident-kotlin", "rewrite-kotlin"],
     },
     LangSpec {
         id: "swift",
@@ -178,7 +178,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-swift)",
         limitations: "",
-        fixtures: &[],
+        fixtures: &["ident-swift", "rewrite-swift"],
     },
     LangSpec {
         id: "php",
@@ -189,7 +189,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-php)",
         limitations: "variable variables and dynamic member access are invisible to syntax matching",
-        fixtures: &[],
+        fixtures: &["rewrite-php"],
     },
     LangSpec {
         id: "ruby",
@@ -200,7 +200,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-ruby)",
         limitations: "metaprogramming (eval, method_missing, const_missing) is invisible to syntax matching",
-        fixtures: &[],
+        fixtures: &["ident-ruby", "rewrite-ruby"],
     },
     LangSpec {
         id: "dart",
@@ -211,7 +211,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-dart)",
         limitations: "",
-        fixtures: &[],
+        fixtures: &["ident-dart", "rewrite-dart"],
     },
     LangSpec {
         id: "lua",
@@ -222,7 +222,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-lua)",
         limitations: "",
-        fixtures: &[],
+        fixtures: &["ident-lua", "rewrite-lua"],
     },
     LangSpec {
         id: "bash",
@@ -233,7 +233,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         binding: BindingSupport::None,
         license: "MIT (tree-sitter-bash)",
         limitations: "posix shell subset; aliases, eval and command substitution are matched syntactically only",
-        fixtures: &[],
+        fixtures: &["rewrite-bash"],
     },
 ];
 

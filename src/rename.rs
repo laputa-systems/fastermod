@@ -20,6 +20,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "javascript" | "typescript" | "tsx" => crate::bind_js::analyze(spec, contents, path),
         "python" => crate::bind_py::analyze(spec, contents, path),
         "rust" => crate::bind_rs::analyze(spec, contents, path),
+        "go" => crate::bind_go::analyze(spec, contents, path),
         _ => None,
     }
 }
