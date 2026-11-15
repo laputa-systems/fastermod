@@ -67,6 +67,20 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Replace include!-of-main with a real library and thin CLI. Separate source snapshots, engine selection, typed operations/edits, diagnostics, review and application. Route legacy text behavior through tested reusable boundaries; avoid per-engine writers and premature crate proliferation.
 - **Accept:** Text parity witnesses pass; deterministic preview/JSON plans record expected bytes and edit provenance; overlap and invalid-range validation exists; no AST/LSP startup cost on the text path beyond demonstrated necessities.
 - **Effort:** L
+- **Done:** `include!`-of-main replaced by a real library (`src/lib.rs`) with
+  thin `src/main.rs`. Modules: `cli` (frozen grammar), `discovery`,
+  `source`, `text`, `diff`, `review`, `plan`, `output`, `engine`,
+  `benchmark`. `src/plan.rs` adds typed `EditPlan`/`SpanEdit`/`Anchor`/
+  `Diagnostic`/`Coverage`, content-hash staleness, `validate()` (schema,
+  unsafe paths, bounds, UTF-8 boundaries, overlap) and `apply()`
+  (validate-all-then-write, per-file atomic stage via `Fastermod::save`,
+  no cross-file transaction claim). Preview/`--check`/`--json`/`--apply
+  --json` route through `build_text_plan`; plain `--accept-all` keeps the
+  parallel fast path. `operation_id` is content-derived (stable across
+  checkouts). JSON schema v1 now emits `operation_id`. Spawn tests moved
+  to `tests/cli.rs`; unit tests colocated per module; plan validation
+  unit tests added. No new dependencies; text path has no parser/LSP
+  startup cost.
 
 ### REFAC-4 · P1 · Make multi-file application and review safe
 

@@ -1,0 +1,428 @@
+//! End-to-end tests that spawn the `fastermod` binary.
+
+use std::env;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::SystemTime;
+
+struct TestDir {
+    path: PathBuf,
+}
+
+impl TestDir {
+    fn with_prefix(prefix: &str) -> TestDir {
+        let base = env::temp_dir();
+        for _ in 0..1000 {
+            let unique = format!(
+                "{prefix}{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+            );
+            let path = base.join(unique);
+            if fs::create_dir(&path).is_ok() {
+                return TestDir { path };
+            }
+        }
+        panic!("unable to create temp directory in {}", base.display());
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TestDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn fastermod_command() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_fastermod"))
+}
+
+fn run_fastermod<I, S>(args: I, input: Option<&str>) -> std::process::Output
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut command = fastermod_command();
+    command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    } else {
+        command.stdin(Stdio::null());
+    }
+
+    let mut child = command.spawn().unwrap();
+    if let Some(input) = input {
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+    }
+    child.wait_with_output().unwrap()
+}
+
+fn assert_fastermod<I, S>(args: I, input: Option<&str>, expected_stdout: Option<&str>)
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let output = run_fastermod(args, input);
+    assert!(
+        output.status.success(),
+        "fastermod failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if let Some(expected_stdout) = expected_stdout {
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), expected_stdout);
+    }
+}
+
+fn create_test_files<'a>(
+    names_and_contents: impl IntoIterator<Item = &'a (&'a str, &'a str)>,
+) -> TestDir {
+    let dir = TestDir::with_prefix("fastermodtest.");
+    for (name, contents) in names_and_contents {
+        let path = dir.path().join(name);
+        let mut file = File::create(path.clone()).unwrap();
+        file.write_all(contents.as_bytes()).unwrap();
+        file.sync_all().unwrap();
+    }
+    dir
+}
+
+#[test]
+fn test_simple_replace_all() {
+    let dir = create_test_files(&[("file1.c", "foo\nfoo blah foo")]);
+    assert_fastermod(
+        [
+            "foo",
+            "bar",
+            "--accept-all",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        None,
+        None,
+    );
+    let contents = fs::read_to_string(dir.path().join("file1.c")).unwrap();
+    assert_eq!(contents, "bar\nbar blah bar");
+}
+
+#[test]
+fn test_tags_like_filenames_are_rewritten() {
+    let dir = create_test_files(&[
+        ("keep.rs", "foo"),
+        ("ctags", "foo"),
+        ("mytags", "foo"),
+        ("file.tags", "foo"),
+        ("tags", "foo"),
+    ]);
+    assert_fastermod(
+        [
+            "foo",
+            "bar",
+            "--accept-all",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        None,
+        None,
+    );
+    for name in ["keep.rs", "ctags", "mytags", "file.tags"] {
+        assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), "bar");
+    }
+    assert_eq!(fs::read_to_string(dir.path().join("tags")).unwrap(), "foo");
+}
+
+#[test]
+fn test_glob_matches() {
+    let dir = create_test_files(&[
+        ("f1.txt", "some awesome text"),
+        ("f2.TXT", "some more awesome text"),
+        ("skip.rs", "i should be skipped but i am still awesome"),
+    ]);
+
+    assert_fastermod(
+        [
+            "awesome",
+            "great",
+            "--accept-all",
+            "--iglob",
+            "*.txt",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        None,
+        None,
+    );
+
+    let lower_translated = fs::read_to_string(dir.path().join("f1.txt")).unwrap();
+    let upper_translated = fs::read_to_string(dir.path().join("f2.TXT")).unwrap();
+    let skipped_translated = fs::read_to_string(dir.path().join("skip.rs")).unwrap();
+    assert_eq!(lower_translated, "some great text");
+    assert_eq!(upper_translated, "some more great text");
+    assert_eq!(
+        skipped_translated,
+        "i should be skipped but i am still awesome"
+    );
+}
+
+#[test]
+fn test_fixed_strings() {
+    let dir = create_test_files(&[("file1.txt", "foo+bar\nfoooobar")]);
+    let file_path = dir.path().join("file1.txt");
+    assert_fastermod(
+        [
+            "foo+bar",
+            "baz",
+            "--accept-all",
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--fixed-strings",
+        ],
+        None,
+        None,
+    );
+    let contents = fs::read_to_string(file_path).unwrap();
+    assert_eq!(contents, "baz\nfoooobar");
+}
+
+#[test]
+fn test_print_changed_files() {
+    let dir = TestDir::with_prefix("fastermodtest.");
+    let mut expected_changed_files = Vec::new();
+    for file_num in 1..6 {
+        let path = dir.path().join(format!("file{}.c", file_num));
+        let mut file = File::create(path.clone()).unwrap();
+        file.write_all(if file_num % 2 == 0 {
+            b"foo\n"
+        } else {
+            b"bar\n"
+        })
+        .unwrap();
+        file.sync_all().unwrap();
+        if file_num % 2 == 0 {
+            expected_changed_files.push(path.as_os_str().to_string_lossy().into_owned());
+        }
+    }
+    assert_fastermod(
+        [
+            "foo",
+            "baz",
+            "--accept-all",
+            "--print-changed-files",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        None,
+        Some(&format!("{}\n", expected_changed_files.join("\n"))),
+    );
+}
+
+#[test]
+fn test_interactive_yes_to_all_finishes_fast() {
+    let dir = create_test_files(&[
+        ("a.txt", "foo"),
+        ("b.txt", "foo"),
+        ("c.txt", "foo"),
+    ]);
+    assert_fastermod(
+        [
+            "foo",
+            "bar",
+            "--accept-all",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        Some("A\n"),
+        None,
+    );
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), "bar");
+    }
+}
+
+#[test]
+fn test_empty_contents() {
+    let dir = create_test_files(&[("foo.txt", "foo")]);
+    assert_fastermod(
+        ["foo", "baz", "--dir", dir.path().to_str().unwrap()],
+        Some("n\n"),
+        None,
+    );
+}
+
+#[cfg(target_family = "unix")]
+#[test]
+fn test_hidden_files() {
+    for &hidden in &[false, true] {
+        let dir = create_test_files(&[(".hidden", "foo")]);
+        let mut args = vec![
+            "foo",
+            "bar",
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--accept-all",
+        ];
+        if hidden {
+            args.push("--hidden");
+        }
+
+        assert_fastermod(args.iter().copied(), None, None);
+        let file_path = dir.path().join(".hidden");
+        let contents = fs::read_to_string(file_path).unwrap();
+        if hidden {
+            assert_eq!(contents, "bar");
+        } else {
+            assert_eq!(contents, "foo");
+        }
+    }
+}
+
+#[test]
+fn test_no_ignore_files() {
+    for &no_ignore in &[false, true] {
+        let dir = create_test_files(&[
+            (".ignore", "ignored.txt"),
+            ("ignored.txt", "original text"),
+            ("not-ignored.txt", "original text"),
+        ]);
+        let mut args = vec![
+            "original",
+            "replacement",
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--accept-all",
+        ];
+        if no_ignore {
+            args.push("--no-ignore");
+        }
+
+        assert_fastermod(args.iter().copied(), None, None);
+
+        let file_path_regular = dir.path().join("not-ignored.txt");
+        let contents_regular = fs::read_to_string(file_path_regular).unwrap();
+        assert_eq!(contents_regular, "replacement text");
+
+        let file_path_ignored = dir.path().join("ignored.txt");
+        let contents_ignored = fs::read_to_string(file_path_ignored).unwrap();
+        if no_ignore {
+            assert_eq!(contents_ignored, "replacement text");
+        } else {
+            assert_eq!(contents_ignored, "original text");
+        }
+    }
+}
+
+#[test]
+fn test_replace_next_to_unicode_character() {
+    let contents = "I have “unicodequotes”";
+    let dir = create_test_files(&[("foo.txt", contents)]);
+    assert_fastermod(
+        [
+            "quotes",
+            "characters",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        Some("n\n"),
+        None,
+    );
+}
+
+#[test]
+fn test_dollar_sign_in_replacement_string_with_fixed_strings() {
+    let contents = "something";
+    let dir = create_test_files(&[("foo.txt", contents)]);
+    assert_fastermod(
+        [
+            "-F",
+            "something",
+            "$foo.bar",
+            "--accept-all",
+            "--dir",
+            dir.path().to_str().unwrap(),
+        ],
+        Some("y\n"),
+        None,
+    );
+    let file_path = dir.path().join("foo.txt");
+    let new_contents = fs::read_to_string(file_path).unwrap();
+    assert_eq!(new_contents, "$foo.bar");
+}
+
+#[test]
+fn test_invalid_regex_exits_nonzero() {
+    let dir = TestDir::with_prefix("fastermodtest.");
+    let output = run_fastermod(["(", "x", dir.path().to_str().unwrap()], None);
+    assert!(
+        !output.status.success(),
+        "invalid regex exited {:?}",
+        output.status.code()
+    );
+}
+
+#[test]
+fn test_empty_pattern_eof_exits_nonzero() {
+    let dir = create_test_files(&[("file.txt", "aaa")]);
+    let output = run_fastermod(
+        [
+            "--accept-all",
+            "a*",
+            "x",
+            dir.path().to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(
+        !output.status.success(),
+        "empty pattern with closed stdin exited {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let contents = fs::read_to_string(dir.path().join("file.txt")).unwrap();
+    assert_eq!(contents, "aaa");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_permission_denied_write_exits_nonzero() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = create_test_files(&[("ro.txt", "foo"), ("rw.txt", "foo")]);
+    let ro = dir.path().join("ro.txt");
+    let mut permissions = fs::metadata(&ro).unwrap().permissions();
+    permissions.set_mode(0o444);
+    fs::set_permissions(&ro, permissions).unwrap();
+
+    let output = run_fastermod(
+        [
+            "--accept-all",
+            "foo",
+            "BAR",
+            dir.path().to_str().unwrap(),
+        ],
+        None,
+    );
+    assert!(
+        !output.status.success(),
+        "permission denied write exited {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&ro).unwrap(), "foo");
+    assert_eq!(fs::read_to_string(dir.path().join("rw.txt")).unwrap(), "BAR");
+}
