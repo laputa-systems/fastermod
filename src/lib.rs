@@ -56,6 +56,7 @@ macro_rules! ensure {
 
 mod bind;
 mod bind_go;
+mod bind_csharp;
 mod bind_java;
 mod bind_js;
 mod bind_lua;

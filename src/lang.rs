@@ -153,10 +153,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::CSharp,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-c-sharp)",
-        limitations: "",
-        fixtures: &["ident-csharp", "rewrite-csharp"],
+        limitations: "obj.M()/obj.f on non-this receivers blocks member renames; using/namespace imports unresolved so cross-file renames block; extension methods and dynamic dispatch unsupported",
+        fixtures: &["ident-csharp", "rewrite-csharp", "rename-csharp"],
     },
     LangSpec {
         id: "kotlin",

@@ -1,0 +1,7 @@
+--rename
+Bump
+Boost
+--at
+A.cs:3:7
+--apply
+{ROOT}
