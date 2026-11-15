@@ -35,6 +35,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "elixir" => crate::bind_elixir::analyze(spec, contents, path),
         "haskell" => crate::bind_haskell::analyze(spec, contents, path),
         "erlang" => crate::bind_erlang::analyze(spec, contents, path),
+        "julia" => crate::bind_julia::analyze(spec, contents, path),
         "php" => crate::bind_php::analyze(spec, contents, path),
         "ruby" => crate::bind_ruby::analyze(spec, contents, path),
         _ => None,
