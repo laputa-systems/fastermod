@@ -107,18 +107,18 @@ fn walk(node: Node, st: &mut State) {
         // function scope. A method/dot-index name defines a table
         // field — no identifier binding — so just walk it as refs.
         "function_declaration" | "function_definition" => {
-            if node.kind() == "function_declaration" {
-                if let Some(name) = node.child_by_field_name("name") {
-                    if name.kind() == "identifier" {
-                        bind(
-                            st,
-                            text(st.contents, name),
-                            name.start_byte()..name.end_byte(),
-                            module_level(st),
-                        );
-                    } else {
-                        walk(name, st);
-                    }
+            if node.kind() == "function_declaration"
+                && let Some(name) = node.child_by_field_name("name")
+            {
+                if name.kind() == "identifier" {
+                    bind(
+                        st,
+                        text(st.contents, name),
+                        name.start_byte()..name.end_byte(),
+                        module_level(st),
+                    );
+                } else {
+                    walk(name, st);
                 }
             }
             st.scopes.push(Scope {
