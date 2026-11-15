@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+A.scala:2:7
+--apply
+{ROOT}

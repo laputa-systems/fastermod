@@ -71,6 +71,7 @@ mod bind_rs;
 mod bind_swift;
 mod bind_zig;
 mod bind_ruby;
+mod bind_scala;
 mod cli;
 mod diff;
 mod discovery;
