@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+A.zig:1:4
+--apply
+{ROOT}

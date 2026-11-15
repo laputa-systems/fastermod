@@ -30,6 +30,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "c" => crate::bind_c::analyze(spec, contents, path),
         "cpp" => crate::bind_cpp::analyze(spec, contents, path),
         "bash" => crate::bind_bash::analyze(spec, contents, path),
+        "zig" => crate::bind_zig::analyze(spec, contents, path),
         "php" => crate::bind_php::analyze(spec, contents, path),
         "ruby" => crate::bind_ruby::analyze(spec, contents, path),
         _ => None,

@@ -297,11 +297,11 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Zig,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         ident_kinds: &[],
         license: "MIT (tree-sitter-zig)",
-        limitations: "",
-        fixtures: &["ident-zig", "rewrite-zig"],
+        limitations: "obj.member/ptr->member access blocks member renames; @import namespacing, comptime and anytype dispatch are not modeled; file-local only",
+        fixtures: &["ident-zig", "rewrite-zig", "rename-zig"],
     },
 ];
 
