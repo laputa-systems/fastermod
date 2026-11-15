@@ -186,10 +186,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Php,
         ident: false,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-php)",
-        limitations: "variable variables and dynamic member access are invisible to syntax matching",
-        fixtures: &["rewrite-php"],
+        limitations: "variable variables ($$x), extract/compact and dynamic calls are invisible; member access on non-$this receivers blocks; require/include resolution unsupported",
+        fixtures: &["rewrite-php", "rename-php"],
     },
     LangSpec {
         id: "ruby",

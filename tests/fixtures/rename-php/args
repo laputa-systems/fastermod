@@ -1,0 +1,7 @@
+--rename
+count
+total
+--at
+a.php:6:2
+--apply
+{ROOT}

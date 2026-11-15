@@ -23,6 +23,7 @@ fn analyze(spec: &LangSpec, contents: &str, path: &std::path::Path) -> Option<An
         "go" => crate::bind_go::analyze(spec, contents, path),
         "lua" => crate::bind_lua::analyze(spec, contents, path),
         "java" => crate::bind_java::analyze(spec, contents, path),
+        "php" => crate::bind_php::analyze(spec, contents, path),
         _ => None,
     }
 }
