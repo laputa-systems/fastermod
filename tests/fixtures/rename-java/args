@@ -1,0 +1,7 @@
+--rename
+bump
+boosted
+--at
+A.java:2:14
+--apply
+{ROOT}

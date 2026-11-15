@@ -142,10 +142,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Java,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-java)",
-        limitations: "",
-        fixtures: &["ident-java", "rewrite-java"],
+        limitations: "qualified member access obj.m()/obj.f cannot be resolved and blocks member renames; imports are not resolved so cross-file type/member renames block on unresolved occurrences",
+        fixtures: &["ident-java", "rewrite-java", "rename-java"],
     },
     LangSpec {
         id: "csharp",

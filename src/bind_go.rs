@@ -5,6 +5,8 @@
 //! Deliberate boundaries: method names (`field_identifier` in
 //! `method_declaration` and selector fields) are a different namespace
 //! and are never rename sites; struct/interface field names likewise.
+//! Same-package cross-file references are not linked, so unresolved
+//! same-name occurrences block package-level renames.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -69,7 +71,11 @@ pub(crate) fn analyze(
         contents: contents.as_bytes(),
     };
     walk(root, &mut st);
-    st.analysis.unresolved_is_exact = true;
+    // Same-package sibling files share the package scope but are analyzed
+    // independently; a `Foo()` call in another file is unresolved here.
+    // Marking the set inexact makes the workspace path block on those
+    // occurrences instead of silently leaving them stale.
+    st.analysis.unresolved_is_exact = false;
     Some(st.analysis)
 }
 
