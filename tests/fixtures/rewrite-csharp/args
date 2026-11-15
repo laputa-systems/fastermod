@@ -1,0 +1,5 @@
+--rewrite
+Helper($$$ARGS)
+Renamed($$$ARGS)
+--apply
+{ROOT}
