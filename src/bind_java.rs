@@ -275,10 +275,10 @@ fn walk(node: Node, st: &mut State) {
                 }
                 walk(child, st);
             }
-            if let Some(n) = name {
-                if n.kind() == "identifier" {
-                    bind_node(st, n);
-                }
+            if let Some(n) = name
+                && n.kind() == "identifier"
+            {
+                bind_node(st, n);
             }
             if let Some(body) = node.child_by_field_name("body") {
                 walk(body, st);
@@ -290,10 +290,10 @@ fn walk(node: Node, st: &mut State) {
             if let Some(value) = node.child_by_field_name("value") {
                 walk(value, st);
             }
-            if let Some(name) = node.child_by_field_name("name") {
-                if name.kind() == "identifier" {
-                    bind_node(st, name);
-                }
+            if let Some(name) = node.child_by_field_name("name")
+                && name.kind() == "identifier"
+            {
+                bind_node(st, name);
             }
             walk_children_except_fields(node, st, &["name", "value"]);
             return;
