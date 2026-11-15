@@ -1,0 +1,16 @@
+[[op]]
+type = "rename"
+old = "helper"
+new = "renamed"
+
+[[op]]
+type = "ident"
+lang = "python"
+old = "bump"
+new = "bumped"
+
+[[op]]
+type = "rewrite"
+lang = "python"
+pattern = "old_name"
+replacement = "fresh_name"

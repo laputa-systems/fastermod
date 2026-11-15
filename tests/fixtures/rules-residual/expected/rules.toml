@@ -1,0 +1,4 @@
+[[op]]
+type = "rename"
+old = "helper"
+new = "renamed"

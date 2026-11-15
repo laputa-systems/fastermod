@@ -1,0 +1,66 @@
+{
+  "applied": false,
+  "config": "rules-file:342648b8e234494e",
+  "coverage": {
+    "discovery": {
+      "file_set": null,
+      "hidden": false,
+      "no_ignore": false,
+      "seen_hash": 6274740375527577244
+    },
+    "files_edited": 1,
+    "files_scanned": 2,
+    "files_skipped": [
+      {
+        "path": "./rules.toml",
+        "reason": "op 0: no registered language matches this file"
+      }
+    ],
+    "read_set": [
+      {
+        "hash": 10548409712564765261,
+        "path": "./a.py"
+      },
+      {
+        "hash": 3757770897993517390,
+        "path": "./rules.toml"
+      }
+    ],
+    "roots": [
+      "."
+    ],
+    "unresolved": []
+  },
+  "diagnostics": [
+    {
+      "code": "workspace-rename",
+      "message": "workspace rename of \"helper\" -> \"renamed\" across 1 analyzed file(s); files outside the discovery roots are not analyzed",
+      "path": null,
+      "severity": "info"
+    }
+  ],
+  "files": [
+    {
+      "after": "def renamed(x):\n    return x\n\ny = renamed(1)\n",
+      "before": "def helper(x):\n    return x\n\ny = helper(1)\n",
+      "before_hash": 10548409712564765261,
+      "edits": [
+        {
+          "anchor": {
+            "column": 5,
+            "excerpt": "def helper(x):",
+            "line": 1
+          },
+          "byte_end": 39,
+          "byte_start": 4,
+          "kind": "rewrite",
+          "replacement": "renamed(x):\n    return x\n\ny = renamed"
+        }
+      ],
+      "path": "./a.py"
+    }
+  ],
+  "mode": "rules",
+  "operation_id": "fm1-a83018539269ab56",
+  "schema": 1
+}

@@ -16,7 +16,7 @@ pub(crate) fn available_worker_threads() -> usize {
     thread::available_parallelism().map_or(1, |parallelism| parallelism.get())
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum FileSet {
     Extensions(Vec<String>),
     Glob {
@@ -139,6 +139,82 @@ pub(crate) fn matching_files(
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
 }
+/// Every regular file the walker visits under `dirs` before content
+/// matching — the discovery read-set fingerprinted into edit plans so a
+/// later apply can detect added, removed, or ignore-rule-changed files.
+pub(crate) fn seen_files(
+    dirs: Vec<&str>,
+    file_set: Option<FileSet>,
+    hidden: bool,
+    no_ignore: bool,
+) -> Result<Vec<std::path::PathBuf>> {
+    let mut paths = Vec::new();
+    for result in walk_builder_with_file_set(dirs, file_set)?
+        .hidden(!hidden)
+        .parents(!no_ignore)
+        .ignore(!no_ignore)
+        .git_ignore(!no_ignore)
+        .git_global(!no_ignore)
+        .git_exclude(!no_ignore)
+        .build()
+    {
+        let dirent = result?;
+        if dirent.file_type().is_some_and(|t| t.is_file())
+            && looks_like_code(dirent.path())
+        {
+            paths.push(dirent.path().to_path_buf());
+        }
+    }
+    paths.sort();
+    Ok(paths)
+}
+
+/// Fingerprint a sorted seen-file listing: order-independent content hash
+/// over path bytes so apply-time re-walks compare deterministically.
+pub(crate) fn seen_fingerprint(paths: &[std::path::PathBuf]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    let mut mix = |bytes: &[u8]| {
+        for b in bytes {
+            hash ^= u64::from(*b);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash ^= 0xff;
+        hash = hash.wrapping_mul(0x100000001b3);
+    };
+    for p in paths {
+        mix(p.as_os_str().as_encoded_bytes());
+    }
+    hash
+}
+
+/// Build the plan read-set: every analyzed file's content hash plus the
+/// discovery fingerprint (walk params + seen-path hash) needed to detect
+/// added/removed files at apply time.
+pub(crate) fn fingerprint_read_set(
+    files: &[SourceFile],
+    dirs: Vec<&str>,
+    file_set: Option<FileSet>,
+    hidden: bool,
+    no_ignore: bool,
+) -> Result<crate::plan::ReadContext> {
+    let seen = seen_files(dirs, file_set.clone(), hidden, no_ignore)?;
+    Ok(crate::plan::ReadContext {
+        entries: files
+            .iter()
+            .map(|f| crate::plan::ReadSetEntry {
+                path: f.path.clone(),
+                hash: crate::plan::content_hash(&f.contents),
+            })
+            .collect(),
+        discovery: crate::plan::DiscoverySpec {
+            hidden,
+            no_ignore,
+            file_set,
+            seen_hash: seen_fingerprint(&seen),
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

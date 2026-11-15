@@ -1,0 +1,17 @@
+[[op]]
+type = "ident"
+lang = "python"
+old = "old_a"
+new = "tmp_mid"
+
+[[op]]
+type = "ident"
+lang = "python"
+old = "old_b"
+new = "old_a"
+
+[[op]]
+type = "ident"
+lang = "python"
+old = "tmp_mid"
+new = "old_b"

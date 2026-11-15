@@ -1,0 +1,5 @@
+--rules
+rules.toml
+--accept-all
+--json
+.

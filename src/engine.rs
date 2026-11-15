@@ -13,6 +13,7 @@ use crate::discovery::{FileSet, matching_files};
 use crate::output::{languages_report, plan_json_report};
 use crate::plan;
 use crate::review::{Fastermod, prompt_reply_stderr};
+use crate::rules;
 use crate::syntax;
 use crate::text::Substitution;
 use crate::{Failure, operational};
@@ -29,6 +30,7 @@ fn finish_pipeline(
     print_changed_files: bool,
     hidden: bool,
     no_ignore: bool,
+    plan_file: Option<&str>,
 ) -> std::result::Result<i32, Failure> {
     let problems = plan::validate(&plan);
     if !problems.is_empty() {
@@ -39,6 +41,20 @@ fn finish_pipeline(
     }
     let files_edited = plan.coverage.files_edited;
     let _ = roots;
+
+    // --plan: persist the versioned plan and stop — no writes happen.
+    if let Some(path) = plan_file {
+        let doc = plan::save(&plan);
+        let text = serde_json::to_string_pretty(&doc)
+            .map_err(|e| Failure::io(format!("cannot serialize plan: {e}")))?;
+        std::fs::write(path, format!("{text}\n"))
+            .map_err(|e| Failure::io(format!("cannot write plan {path}: {e}")))?;
+        eprintln!("wrote plan {} ({} files)", path, files_edited);
+        if json {
+            print!("{}", plan_json_report(&plan));
+        }
+        return Ok(0);
+    }
 
     if json {
         let apply_result = if apply {
@@ -119,14 +135,29 @@ fn run_text_pipeline(
     check: bool,
     json: bool,
     roots: &[String],
+    plan_file: Option<&str>,
 ) -> std::result::Result<i32, Failure> {
-    let files = operational(matching_files(dirs, file_set, hidden, no_ignore, matcher))?;
-    let plan = plan::build_text_plan(
+    let files = operational(matching_files(
+        dirs.clone(),
+        file_set.clone(),
+        hidden,
+        no_ignore,
+        matcher,
+    ))?;
+    let read = operational(crate::discovery::fingerprint_read_set(
+        &files,
+        dirs,
+        file_set,
+        hidden,
+        no_ignore,
+    ))?;
+    let plan = plan::build_text_plan_read(
         Mode::Text.name(),
         regex,
         substitution,
         &files,
         roots.to_vec(),
+        Some(read),
     );
     finish_pipeline(
         plan,
@@ -137,6 +168,7 @@ fn run_text_pipeline(
         print_changed_files,
         hidden,
         no_ignore,
+        plan_file,
     )
 }
 
@@ -226,6 +258,7 @@ fn run_syntax_pipeline(
     roots: &[String],
     langs: &[String],
     at_anchor: Option<&str>,
+    plan_file: Option<&str>,
 ) -> std::result::Result<i32, Failure> {
     // Discovery prefilter: --ident can require the literal OLD bytes.
     // --rewrite patterns and --rename have no reliable literal head —
@@ -240,7 +273,20 @@ fn run_syntax_pipeline(
             .build("")
             .map_err(|e| Failure::usage(format!("Unable to make matcher: {e}")))?
     };
-    let files = operational(matching_files(dirs, file_set, hidden, no_ignore, &matcher))?;
+    let files = operational(matching_files(
+        dirs.clone(),
+        file_set.clone(),
+        hidden,
+        no_ignore,
+        &matcher,
+    ))?;
+    let read = operational(crate::discovery::fingerprint_read_set(
+        &files,
+        dirs.clone(),
+        file_set,
+        hidden,
+        no_ignore,
+    ))?;
     let scanned = files.len();
     let run = match mode {
         Mode::Ident => syntax::run_ident(pattern, replacement, &files, langs)?,
@@ -261,6 +307,7 @@ fn run_syntax_pipeline(
         roots.to_vec(),
         run.skipped,
         run.diagnostics,
+        Some(read),
     );
     if interactive {
         return interactive_syntax_review(plan, hidden, no_ignore, print_changed_files);
@@ -275,6 +322,7 @@ fn run_syntax_pipeline(
         print_changed_files,
         hidden,
         no_ignore,
+        plan_file,
     )
 }
 
@@ -311,23 +359,27 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
         print!("{}", languages_report(json));
         return Ok(0);
     }
-    for (unimplemented, flag) in [
-        (mode == Mode::Rules, "--rules"),
-        (mode == Mode::ApplyPlan, "--apply-plan"),
-    ] {
-        if unimplemented {
-            return Err(Failure::analysis(format!(
-                "{} is not yet implemented in this build",
-                flag
+    if mode == Mode::ApplyPlan {
+        let path = apply_plan.as_deref().unwrap_or_default();
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| Failure::io(format!("cannot read plan {path}: {e}")))?;
+        let mut plan = plan::load(&text)
+            .map_err(|e| Failure::usage(format!("invalid plan {path}: {e}")))?;
+        let problems = plan::validate(&plan);
+        if !problems.is_empty() {
+            return Err(Failure::io(format!(
+                "invalid edit plan: {}",
+                problems.join("; ")
             )));
         }
+        let applied = plan::apply_excluding(&mut plan, Some(std::path::Path::new(path)))?;
+        if json {
+            print!("{}", plan_json_report(&plan));
+        } else {
+            println!("applied {} file(s) from plan {}", applied, path);
+        }
+        return Ok(0);
     }
-    if plan_file.is_some() {
-        return Err(Failure::analysis(
-            "--plan is not yet implemented in this build",
-        ));
-    }
-    let _ = (apply_plan, rules_file);
 
     let dirs = {
         let mut dirs: Vec<_> = dir
@@ -354,6 +406,41 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             case_insensitive: true,
         })
     };
+
+    // Rules mode: ordered declarative ops over in-memory contents, sharing
+    // the same review/apply/report tail as the other syntax engines.
+    if mode == Mode::Rules {
+        let plan = rules::run_rules(
+            rules_file.as_deref().unwrap_or_default(),
+            dirs,
+            file_set,
+            hidden,
+            no_ignore,
+            &langs,
+            &roots,
+        )?;
+        let apply = accept_all || apply;
+        let interactive = !apply
+            && !dry_run
+            && !check
+            && !json
+            && std::io::stdin().is_terminal()
+            && std::io::stdout().is_terminal();
+        if interactive {
+            return interactive_syntax_review(plan, hidden, no_ignore, print_changed_files);
+        }
+        return finish_pipeline(
+            plan,
+            &roots,
+            apply,
+            check,
+            json,
+            print_changed_files,
+            hidden,
+            no_ignore,
+            plan_file.as_deref(),
+        );
+    }
 
     // Syntax modes dispatch before any regex is compiled; `match_regex` and
     // `subst` still hold the raw OLD/NEW positionals here.
@@ -382,6 +469,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             &roots,
             &langs,
             at_anchor.as_deref(),
+            plan_file.as_deref(),
         );
     }
 
@@ -482,5 +570,6 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
         check,
         json,
         &roots,
+        plan_file.as_deref(),
     )
 }

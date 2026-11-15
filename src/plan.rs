@@ -107,6 +107,34 @@ pub(crate) struct Diagnostic {
     pub path: Option<PathBuf>,
 }
 
+/// One file the engines actually read, with its content fingerprint.
+/// Unedited read-set members still invalidate a saved plan when they
+/// change — imports, manifests, and configs the analysis depended on.
+#[derive(Clone, Debug)]
+pub(crate) struct ReadSetEntry {
+    pub path: PathBuf,
+    pub hash: u64,
+}
+
+/// Serializable mirror of the discovery parameters used for a run, so
+/// `--apply-plan` can re-walk the same roots and detect added/removed
+/// files even when none of the edited files changed.
+#[derive(Clone, Debug)]
+pub(crate) struct DiscoverySpec {
+    pub hidden: bool,
+    pub no_ignore: bool,
+    pub file_set: Option<crate::discovery::FileSet>,
+    /// Fingerprint of every file path the walk visited, sorted.
+    pub seen_hash: u64,
+}
+
+/// Everything needed to revalidate the analysis read-set at apply time.
+#[derive(Clone, Debug)]
+pub(crate) struct ReadContext {
+    pub entries: Vec<ReadSetEntry>,
+    pub discovery: DiscoverySpec,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Coverage {
     pub roots: Vec<String>,
@@ -114,6 +142,8 @@ pub(crate) struct Coverage {
     pub files_edited: usize,
     pub files_skipped: Vec<SkippedFile>,
     pub unresolved: Vec<UnresolvedRef>,
+    pub read_set: Vec<ReadSetEntry>,
+    pub discovery: Option<DiscoverySpec>,
 }
 
 #[derive(Clone, Debug)]
@@ -122,6 +152,9 @@ pub(crate) struct EditPlan {
     pub mode: String,
     pub applied: bool,
     pub operation_id: String,
+    /// Data-only fingerprint of the operation configuration (rules file
+    /// hash or mode/pattern/languages digest) recorded as evidence.
+    pub config: Option<String>,
     pub coverage: Coverage,
     pub files: Vec<PlannedFile>,
     pub diagnostics: Vec<Diagnostic>,
@@ -137,7 +170,7 @@ pub(crate) fn content_hash(contents: &str) -> u64 {
     hash
 }
 
-fn line_excerpt(contents: &str, byte_index: usize) -> String {
+pub(crate) fn line_excerpt(contents: &str, byte_index: usize) -> String {
     let start = contents[..byte_index].rfind('\n').map_or(0, |i| i + 1);
     let end = contents[byte_index..]
         .find('\n')
@@ -179,6 +212,17 @@ pub(crate) fn build_text_plan(
     files: &[SourceFile],
     roots: Vec<String>,
 ) -> EditPlan {
+    build_text_plan_read(mode, regex, substitution, files, roots, None)
+}
+
+pub(crate) fn build_text_plan_read(
+    mode: &str,
+    regex: &Regex,
+    substitution: &Substitution,
+    files: &[SourceFile],
+    roots: Vec<String>,
+    read: Option<ReadContext>,
+) -> EditPlan {
     let mut planned = Vec::new();
     for file in files {
         if let std::borrow::Cow::Owned(after) = substitution.replace_all(regex, &file.contents) {
@@ -200,6 +244,7 @@ pub(crate) fn build_text_plan(
         roots,
         Vec::new(),
         Vec::new(),
+        read,
     )
 }
 
@@ -213,6 +258,7 @@ pub(crate) fn assemble_plan(
     roots: Vec<String>,
     files_skipped: Vec<SkippedFile>,
     diagnostics: Vec<Diagnostic>,
+    read: Option<ReadContext>,
 ) -> EditPlan {
     let files_edited = files.len();
     // Content-derived so the id is stable across checkouts and machines;
@@ -234,12 +280,15 @@ pub(crate) fn assemble_plan(
         mode: mode.to_string(),
         applied: false,
         operation_id: format!("fm1-{:016x}", content_hash(&seed)),
+        config: None,
         coverage: Coverage {
             roots,
             files_scanned,
             files_edited,
             files_skipped,
             unresolved: Vec::new(),
+            read_set: read.as_ref().map(|r| r.entries.clone()).unwrap_or_default(),
+            discovery: read.map(|r| r.discovery),
         },
         files,
         diagnostics,
@@ -309,6 +358,16 @@ pub(crate) fn validate(plan: &EditPlan) -> Vec<String> {
 /// between the staleness read and the rename is documented in
 /// docs/refactor/apply-safety.md.
 pub(crate) fn apply(plan: &mut EditPlan) -> std::result::Result<usize, Failure> {
+    apply_excluding(plan, None)
+}
+
+/// Apply with an optional path excluded from the discovery re-walk — the
+/// saved plan file itself may live inside a scanned root and must not
+/// count as an "added file".
+pub(crate) fn apply_excluding(
+    plan: &mut EditPlan,
+    exclude: Option<&std::path::Path>,
+) -> std::result::Result<usize, Failure> {
     let problems = validate(plan);
     if !problems.is_empty() {
         return Err(Failure::io(format!(
@@ -404,6 +463,56 @@ pub(crate) fn apply(plan: &mut EditPlan) -> std::result::Result<usize, Failure> 
         )));
     }
 
+    // Read-set revalidation: plans record every file the analysis read
+    // plus a fingerprint of the whole discovered listing. Re-walking the
+    // declared roots catches added/removed files, .gitignore drift, and
+    // changes to unedited dependencies (imports, manifests, configs).
+    if let Some(disc) = &plan.coverage.discovery {
+        let spec_roots: Vec<&str> = plan.coverage.roots.iter().map(String::as_str).collect();
+        let seen = crate::operational(crate::discovery::seen_files(
+            spec_roots,
+            disc.file_set.clone(),
+            disc.hidden,
+            disc.no_ignore,
+        ))?;
+        let seen: Vec<std::path::PathBuf> = match exclude {
+            Some(ex) => {
+                let ex_canon = std::fs::canonicalize(ex).ok();
+                let ex_name = ex.file_name().map(|n| n.to_os_string());
+                seen.into_iter()
+                    .filter(|p| {
+                        if ex_name.as_ref() != p.file_name().map(|n| n.to_os_string()).as_ref() {
+                            return true;
+                        }
+                        match (&ex_canon, std::fs::canonicalize(p).ok()) {
+                            (Some(a), Some(b)) => a != &b,
+                            _ => true,
+                        }
+                    })
+                    .collect()
+            }
+            None => seen,
+        };
+        if crate::discovery::seen_fingerprint(&seen) != disc.seen_hash {
+            return Err(Failure::io(
+                "plan is stale; files added or removed since analysis".to_string(),
+            ));
+        }
+        let mut read_stale = Vec::new();
+        for entry in &plan.coverage.read_set {
+            match std::fs::read_to_string(&entry.path) {
+                Ok(current) if content_hash(&current) == entry.hash => {}
+                _ => read_stale.push(entry.path.display().to_string()),
+            }
+        }
+        if !read_stale.is_empty() {
+            return Err(Failure::io(format!(
+                "plan is stale; analyzed files changed since analysis: {}",
+                read_stale.join(", ")
+            )));
+        }
+    }
+
     let mut fm = Fastermod::new(true, false, false, false);
     let mut failed = Vec::new();
     for file in &mut plan.files {
@@ -455,6 +564,7 @@ mod tests {
             mode: "text".to_string(),
             applied: false,
             operation_id: String::new(),
+            config: None,
             coverage: Coverage::default(),
             files: vec![PlannedFile {
                 path: PathBuf::from(path),
@@ -529,6 +639,7 @@ mod tests {
         assert_eq!(a.files[0].edits.len(), 2);
         assert!(validate(&a).is_empty());
     }
+
 }
 
 #[cfg(test)]
@@ -712,4 +823,410 @@ mod apply_tests {
         permissions.set_mode(0o644);
         fs::set_permissions(&locked, permissions).unwrap();
     }
+    #[test]
+    fn save_load_round_trip_preserves_read_set() {
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        write(&dir, "dep.txt", "dep\n");
+        let regex = Regex::new("foo").unwrap();
+        let substitution = Substitution::new("bar".to_string(), false);
+        let files = vec![
+            SourceFile { path: dir.0.join("a.txt"), contents: "foo\n".into() },
+            SourceFile { path: dir.0.join("dep.txt"), contents: "dep\n".into() },
+        ];
+        let read = crate::discovery::fingerprint_read_set(
+            &files,
+            vec![dir.0.to_str().unwrap()],
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+        let mut plan = build_text_plan_read(
+            "text",
+            &regex,
+            &substitution,
+            &files,
+            vec![dir.0.to_string_lossy().into_owned()],
+            Some(read),
+        );
+        plan.config = Some("test-config".to_string());
+        let text = serde_json::to_string_pretty(&save(&plan)).unwrap();
+        let loaded = load(&text).unwrap();
+        assert_eq!(loaded.schema, PLAN_SCHEMA);
+        assert_eq!(loaded.config.as_deref(), Some("test-config"));
+        assert_eq!(loaded.coverage.read_set.len(), 2);
+        assert!(loaded.coverage.discovery.is_some());
+        assert_eq!(loaded.files.len(), plan.files.len());
+    }
+
+    #[test]
+    fn apply_rejects_changed_unedited_read_set_file() {
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        write(&dir, "dep.txt", "dep\n");
+        let regex = Regex::new("foo").unwrap();
+        let substitution = Substitution::new("bar".to_string(), false);
+        let dep_path = dir.0.join("dep.txt");
+        let files = vec![
+            SourceFile { path: dir.0.join("a.txt"), contents: "foo\n".into() },
+            SourceFile { contents: "dep\n".into(), path: dep_path.clone() },
+        ];
+        let read = crate::discovery::fingerprint_read_set(
+            &files,
+            vec![dir.0.to_str().unwrap()],
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+        // dep.txt is not edited by the plan but was analyzed: changing it
+        // must invalidate application.
+        fs::write(&dep_path, "changed\n").unwrap();
+        let mut plan = build_text_plan_read(
+            "text",
+            &regex,
+            &substitution,
+            &files,
+            vec![dir.0.to_string_lossy().into_owned()],
+            Some(read),
+        );
+        let err = apply(&mut plan).unwrap_err();
+        assert!(err.to_string().contains("stale"), "{err}");
+        assert_eq!(fs::read_to_string(dir.0.join("a.txt")).unwrap(), "foo\n");
+    }
+
+    #[test]
+    fn apply_rejects_added_file_via_seen_fingerprint() {
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        let regex = Regex::new("foo").unwrap();
+        let substitution = Substitution::new("bar".to_string(), false);
+        let files = vec![SourceFile {
+            path: dir.0.join("a.txt"),
+            contents: "foo\n".into(),
+        }];
+        let read = crate::discovery::fingerprint_read_set(
+            &files,
+            vec![dir.0.to_str().unwrap()],
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+        fs::write(dir.0.join("added.txt"), "new\n").unwrap();
+        let mut plan = build_text_plan_read(
+            "text",
+            &regex,
+            &substitution,
+            &files,
+            vec![dir.0.to_string_lossy().into_owned()],
+            Some(read),
+        );
+        let err = apply(&mut plan).unwrap_err();
+        assert!(err.to_string().contains("added or removed"), "{err}");
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// REFAC-12: versioned plan serialization and stale-plan loading.
+// ---------------------------------------------------------------------------
+
+fn edit_json(edit: &SpanEdit) -> serde_json::Value {
+    serde_json::json!({
+        "byte_start": edit.byte_start,
+        "byte_end": edit.byte_end,
+        "replacement": edit.replacement,
+        "kind": edit.kind.as_str(),
+        "anchor": {
+            "line": edit.anchor.line,
+            "column": edit.anchor.column,
+            "excerpt": edit.anchor.excerpt,
+        },
+    })
+}
+
+fn file_json(file: &PlannedFile) -> serde_json::Value {
+    serde_json::json!({
+        "path": file.path.to_string_lossy(),
+        "before_hash": file.before_hash,
+        "before": file.before,
+        "after": file.after,
+        "edits": file.edits.iter().map(edit_json).collect::<Vec<_>>(),
+    })
+}
+
+/// Serialize a plan to its versioned JSON document. Plans are data,
+/// not scripts: every field needed to revalidate and apply is recorded.
+pub(crate) fn save(plan: &EditPlan) -> serde_json::Value {
+    serde_json::json!({
+        "schema": plan.schema,
+        "mode": plan.mode,
+        "operation_id": plan.operation_id,
+        "applied": plan.applied,
+        "config": plan.config,
+        "coverage": {
+            "roots": plan.coverage.roots,
+            "files_scanned": plan.coverage.files_scanned,
+            "files_edited": plan.coverage.files_edited,
+            "files_skipped": plan.coverage.files_skipped.iter().map(|s| serde_json::json!({
+                "path": s.path.to_string_lossy(),
+                "reason": s.reason,
+            })).collect::<Vec<_>>(),
+            "unresolved": plan.coverage.unresolved.iter().map(|u| serde_json::json!({
+                "path": u.path.to_string_lossy(),
+                "detail": u.detail,
+            })).collect::<Vec<_>>(),
+            "read_set": plan.coverage.read_set.iter().map(|e| serde_json::json!({
+                "path": e.path.to_string_lossy(),
+                "hash": e.hash,
+            })).collect::<Vec<_>>(),
+            "discovery": plan.coverage.discovery.as_ref().map(|d| {
+                let file_set = d.file_set.as_ref().map(|fs| match fs {
+                    crate::discovery::FileSet::Extensions(exts) => serde_json::json!({
+                        "kind": "extensions",
+                        "values": exts,
+                    }),
+                    crate::discovery::FileSet::Glob { matches, case_insensitive } => serde_json::json!({
+                        "kind": "glob",
+                        "matches": matches,
+                        "case_insensitive": case_insensitive,
+                    }),
+                });
+                serde_json::json!({
+                    "hidden": d.hidden,
+                    "no_ignore": d.no_ignore,
+                    "file_set": file_set,
+                    "seen_hash": d.seen_hash,
+                })
+            }),
+        },
+        "files": plan.files.iter().map(file_json).collect::<Vec<_>>(),
+        "diagnostics": plan.diagnostics.iter().map(|d| serde_json::json!({
+            "severity": d.severity.as_str(),
+            "code": d.code,
+            "message": d.message,
+            "path": d.path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn get_str<'a>(v: &'a serde_json::Value, key: &str) -> std::result::Result<&'a str, String> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| format!("plan field {key:?} missing or not a string"))
+}
+
+fn get_u64(v: &serde_json::Value, key: &str) -> std::result::Result<u64, String> {
+    v.get(key)
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| format!("plan field {key:?} missing or not an integer"))
+}
+
+fn path_from(v: &serde_json::Value, key: &str) -> std::result::Result<PathBuf, String> {
+    Ok(PathBuf::from(get_str(v, key)?))
+}
+
+fn edit_from(v: &serde_json::Value) -> std::result::Result<SpanEdit, String> {
+    let kind = match get_str(v, "kind")? {
+        "text" => EditKind::Text,
+        "ident" => EditKind::Ident,
+        "rewrite" => EditKind::Rewrite,
+        "rename-reference" => EditKind::RenameReference,
+        other => return Err(format!("unknown edit kind {other:?}")),
+    };
+    let anchor = v
+        .get("anchor")
+        .ok_or_else(|| "edit missing anchor".to_string())?;
+    Ok(SpanEdit {
+        byte_start: get_u64(v, "byte_start")? as usize,
+        byte_end: get_u64(v, "byte_end")? as usize,
+        replacement: get_str(v, "replacement")?.to_string(),
+        kind,
+        anchor: Anchor {
+            line: get_u64(anchor, "line")? as usize,
+            column: get_u64(anchor, "column")? as usize,
+            excerpt: get_str(anchor, "excerpt")?.to_string(),
+        },
+    })
+}
+
+fn file_from(v: &serde_json::Value) -> std::result::Result<PlannedFile, String> {
+    let edits = v
+        .get("edits")
+        .and_then(|e| e.as_array())
+        .ok_or_else(|| "file missing edits array".to_string())?
+        .iter()
+        .map(edit_from)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(PlannedFile {
+        path: path_from(v, "path")?,
+        before: get_str(v, "before")?.to_string(),
+        after: get_str(v, "after")?.to_string(),
+        before_hash: get_u64(v, "before_hash")?,
+        applied: false,
+        edits,
+    })
+}
+
+/// Load a versioned plan document. Schema mismatches and malformed
+/// fields are hard errors — a plan is never silently repaired.
+pub(crate) fn load(text: &str) -> std::result::Result<EditPlan, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("invalid plan JSON: {e}"))?;
+    let schema = get_u64(&v, "schema")? as u32;
+    if schema != PLAN_SCHEMA {
+        return Err(format!("unsupported plan schema {schema}"));
+    }
+    let coverage = v
+        .get("coverage")
+        .ok_or_else(|| "plan missing coverage".to_string())?;
+    let roots = coverage
+        .get("roots")
+        .and_then(|r| r.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let files_skipped = coverage
+        .get("files_skipped")
+        .and_then(|r| r.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    Some(SkippedFile {
+                        path: PathBuf::from(x.get("path")?.as_str()?),
+                        reason: x.get("reason")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let unresolved = coverage
+        .get("unresolved")
+        .and_then(|r| r.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    Some(UnresolvedRef {
+                        path: PathBuf::from(x.get("path")?.as_str()?),
+                        detail: x.get("detail")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let files = v
+        .get("files")
+        .and_then(|f| f.as_array())
+        .ok_or_else(|| "plan missing files array".to_string())?
+        .iter()
+        .map(file_from)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let diagnostics = v
+        .get("diagnostics")
+        .and_then(|d| d.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    let severity = match x.get("severity")?.as_str()? {
+                        "error" => Severity::Error,
+                        "warning" => Severity::Warning,
+                        _ => Severity::Info,
+                    };
+                    Some(Diagnostic {
+                        severity,
+                        code: x.get("code")?.as_str()?.to_string(),
+                        message: x.get("message")?.as_str()?.to_string(),
+                        path: x
+                            .get("path")
+                            .and_then(|p| p.as_str())
+                            .map(PathBuf::from),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let read_set = coverage
+        .get("read_set")
+        .and_then(|r| r.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| {
+                    Some(ReadSetEntry {
+                        path: PathBuf::from(x.get("path")?.as_str()?),
+                        hash: x.get("hash")?.as_u64()?,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let discovery = coverage.get("discovery").and_then(|d| {
+        if d.is_null() {
+            return None;
+        }
+        let file_set = d.get("file_set").and_then(|f| {
+            if f.is_null() {
+                return Some(None);
+            }
+            match f.get("kind")?.as_str()? {
+                "extensions" => Some(Some(crate::discovery::FileSet::Extensions(
+                    f.get("values")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect(),
+                ))),
+                "glob" => Some(Some(crate::discovery::FileSet::Glob {
+                    matches: f
+                        .get("matches")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect(),
+                    case_insensitive: f
+                        .get("case_insensitive")
+                        .and_then(|c| c.as_bool())
+                        .unwrap_or(false),
+                })),
+                _ => None,
+            }
+        })?;
+        Some(DiscoverySpec {
+            hidden: d.get("hidden").and_then(|h| h.as_bool()).unwrap_or(false),
+            no_ignore: d
+                .get("no_ignore")
+                .and_then(|n| n.as_bool())
+                .unwrap_or(false),
+            file_set,
+            seen_hash: d.get("seen_hash").and_then(|h| h.as_u64()).unwrap_or(0),
+        })
+    });
+    Ok(EditPlan {
+        schema,
+        mode: get_str(&v, "mode")?.to_string(),
+        applied: v.get("applied").and_then(|a| a.as_bool()).unwrap_or(false),
+        operation_id: get_str(&v, "operation_id")?.to_string(),
+        config: v
+            .get("config")
+            .and_then(|c| c.as_str())
+            .map(str::to_string),
+        coverage: Coverage {
+            roots,
+            files_scanned: coverage
+                .get("files_scanned")
+                .and_then(|n| n.as_u64())
+                .unwrap_or(0) as usize,
+            files_edited: files.len(),
+            files_skipped,
+            unresolved,
+            read_set,
+            discovery,
+        },
+        files,
+        diagnostics,
+    })
 }

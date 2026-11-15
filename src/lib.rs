@@ -85,6 +85,7 @@ mod lang;
 mod output;
 mod plan;
 mod rename;
+mod rules;
 mod review;
 mod source;
 mod syntax;
