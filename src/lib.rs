@@ -57,6 +57,7 @@ macro_rules! ensure {
 mod bind;
 mod bind_go;
 mod bind_groovy;
+mod bind_vb;
 mod bind_haskell;
 mod bind_julia;
 mod bind_r;

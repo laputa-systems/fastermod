@@ -557,11 +557,11 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         grammar: Grammar::Raw(tree_sitter_vb_dotnet::LANGUAGE),
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         ident_kinds: &[],
         license: "MIT (tree-sitter-vb-dotnet)",
         limitations: "VB is case-insensitive; rename preserves spelling case per occurrence",
-        fixtures: &["ident-vb-dotnet", "rewrite-vb-dotnet"],
+        fixtures: &["ident-vb-dotnet", "rewrite-vb-dotnet", "rename-vb-dotnet"],
     },
     // REFAC-11 structured assets: bundled data/markup grammars.
     // ident stays off for data formats — keys are data, not lexical
@@ -693,4 +693,5 @@ pub(crate) fn detect(path: &Path, overrides: &[String]) -> Option<&'static LangS
 pub(crate) fn is_identifier_kind(kind: &str) -> bool {
     kind == "identifier" || kind.ends_with("_identifier")
 }
+
 
