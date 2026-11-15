@@ -187,10 +187,10 @@ fn lookup(st: &State, name: &str, ns: Ns) -> Option<usize> {
         // ivars/cvars live at the nearest enclosing type/program scope.
         Ns::Ivar | Ns::Cvar => {
             for s in st.scopes.iter().rev() {
-                if matches!(s.kind, ScopeKind::Type | ScopeKind::Program) {
-                    if let Some(b) = pick(s) {
-                        return Some(b);
-                    }
+                if matches!(s.kind, ScopeKind::Type | ScopeKind::Program)
+                    && let Some(b) = pick(s)
+                {
+                    return Some(b);
                 }
             }
             None
@@ -481,13 +481,10 @@ fn bind_param_names(st: &mut State, node: Node) {
         if !child.is_named() {
             continue;
         }
-        match child.kind() {
-            "identifier" => bind_name_node(st, child, Ns::Var),
-            // parameter wrapper kinds handle their own name fields when
-            // walked; but their `name` children are identifiers — bind
-            // here too only if the wrapper won't be walked. We walk
-            // children normally afterwards, so skip wrappers.
-            _ => {}
+        // Parameter wrapper kinds bind their own name fields when
+        // walked; bare identifier children are required params.
+        if child.kind() == "identifier" {
+            bind_name_node(st, child, Ns::Var);
         }
     }
 }
