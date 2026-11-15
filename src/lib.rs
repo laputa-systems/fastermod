@@ -71,6 +71,7 @@ mod source;
 mod syntax;
 mod terminal;
 mod text;
+mod workspace;
 
 #[doc(hidden)]
 pub mod benchmark;

@@ -161,4 +161,4 @@ grammar bundle id, license, extensions, identifier roles, structural
 rewrite support, binding-resolution level, symbol kinds, limitations and
 fixture IDs. A parser row is never reported as rename support: `binding`
 is `"none"` for languages whose resolver has not landed; `"local"` marks
-REFAC-7 single-file binding renames and `"workspace"` marks REFAC-8+ scope.
+REFAC-7+ single-file binding renames and `"workspace"` marks REFAC-8 cross-file module-graph rename scope (wave A: rust, python, javascript, typescript, tsx).

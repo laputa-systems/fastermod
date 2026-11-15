@@ -118,6 +118,9 @@ fn symbol_kinds_str(binding: crate::lang::BindingSupport) -> &'static str {
         crate::lang::BindingSupport::Local => {
             "lexical declarations and resolved references (single file)"
         }
+        crate::lang::BindingSupport::Workspace => {
+            "lexical declarations, resolved references, and module-graph rename (workspace)"
+        }
     }
 }
 
@@ -125,6 +128,7 @@ fn binding_str(binding: crate::lang::BindingSupport) -> &'static str {
     match binding {
         crate::lang::BindingSupport::None => "none",
         crate::lang::BindingSupport::Local => "local",
+        crate::lang::BindingSupport::Workspace => "workspace",
     }
 }
 
@@ -180,7 +184,7 @@ pub(crate) fn languages_report(json: bool) -> String {
     out.push_str("modes:\n");
     out.push_str("  text       available (regex/literal substitution)\n");
     out.push_str("  ident      available (syntax-aware identifier tokens)\n");
-    out.push_str("  rename     available (binding-aware local rename; workspace scope is REFAC-8)\n");
+    out.push_str("  rename     available (binding-aware local + workspace rename)\n");
     out.push_str("  rewrite    available (structural pattern rewrite)\n");
     out.push_str("  rules      unavailable (REFAC-12)\n");
     out.push_str("  apply-plan unavailable (REFAC-12)\n");

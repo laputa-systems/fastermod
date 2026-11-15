@@ -11,7 +11,7 @@ use std::ops::Range;
 use ast_grep_core::tree_sitter::LanguageExt;
 use tree_sitter::{Node, Parser};
 
-use crate::bind::{Analysis, BindingSite, RefSite};
+use crate::bind::{Analysis, BindingSite, ImportEdge, RefSite};
 use crate::lang::LangSpec;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -59,11 +59,85 @@ pub(crate) fn analyze(
         scopes: vec![Scope::new(ScopeKind::Module)],
         has_match: false,
         has_star_import: false,
+        module_bindings: std::collections::HashMap::new(),
         contents: contents.as_bytes(),
     };
     walk(root, &mut st);
+    record_dunder_all(root, &mut st);
     st.analysis.unresolved_is_exact = !(st.has_match || st.has_star_import);
     Some(st.analysis)
+}
+
+/// `__all__ = ["name", ...]` (and `+=`) entries are public-API spellings:
+/// each string names a module attribute, so a matching rename must
+/// rewrite it. Record each entry as a reference to the module-level
+/// binding of the same name — or unresolved when none exists (star
+/// imports, dynamic attributes) so a spelled match blocks the rename.
+fn record_dunder_all(root: Node, st: &mut State) {
+    for stmt in root.children(&mut root.walk()) {
+        if stmt.kind() != "expression_statement" {
+            continue;
+        }
+        let Some(assign) = stmt
+            .children(&mut stmt.walk())
+            .find(|c| matches!(c.kind(), "assignment" | "augmented_assignment"))
+        else {
+            continue;
+        };
+        let Some(left) = assign.child_by_field_name("left") else {
+            continue;
+        };
+        if left.kind() != "identifier" || text(st.contents, left) != "__all__" {
+            continue;
+        }
+        let Some(right) = assign.child_by_field_name("right") else {
+            continue;
+        };
+        if !matches!(right.kind(), "list" | "tuple") {
+            continue;
+        }
+        for el in right.children(&mut right.walk()) {
+            if el.kind() != "string" {
+                continue;
+            }
+            let raw = text(st.contents, el);
+            // Inner content range: strip the quote characters (and any
+            // string prefix). Only plain single-line strings qualify.
+            let Some(prefix_len) = raw.find(['"', '\'']) else {
+                continue;
+            };
+            let rest = &raw[prefix_len..];
+            let Some(qc) = rest.chars().next() else {
+                continue;
+            };
+            // Triple-quoted strings: the naive strip leaves stray quotes.
+            if rest.starts_with(&qc.to_string().repeat(3)) {
+                continue;
+            }
+            let content_start = el.start_byte() + prefix_len + qc.len_utf8();
+            let content_end = el.end_byte() - qc.len_utf8();
+            if content_end <= content_start {
+                continue;
+            }
+            let name = &raw[prefix_len + qc.len_utf8()..raw.len() - qc.len_utf8()];
+            if name.contains('\\') || name.is_empty() {
+                continue;
+            }
+            let range = content_start..content_end;
+            let target = st
+                .scopes
+                .first()
+                .and_then(|s| s.bindings.get(name).copied())
+                .filter(|&b| st.analysis.bindings[b].module_level);
+            st.analysis.refs.push(RefSite {
+                name: range,
+                target,
+                expansion: None,
+                remote: false,
+                module_attr: None,
+            });
+        }
+    }
 }
 
 struct State<'a> {
@@ -71,6 +145,9 @@ struct State<'a> {
     scopes: Vec<Scope>,
     has_match: bool,
     has_star_import: bool,
+    /// binding index -> import edge index, for module-object binds
+    /// (`import m`, `import a.b as c`) so `m.attr` refs can be tagged.
+    module_bindings: std::collections::HashMap<usize, usize>,
     contents: &'a [u8],
 }
 
@@ -207,6 +284,7 @@ fn walk(node: Node, st: &mut State) {
                         target,
                         expansion: None,
                         remote: false,
+                        module_attr: None,
                     });
                 }
             }
@@ -260,11 +338,13 @@ fn walk(node: Node, st: &mut State) {
             record_ref(st, &name, node.start_byte()..node.end_byte());
         }
         "attribute" => {
-            // object is a load ref; the attribute name identifier is not.
+            // object is a load ref; the attribute name may be a module
+            // attribute when the object chain is rooted at a module
+            // binding (`import m` / `import a.b as c`).
             if let Some(object) = node.child_by_field_name("object") {
                 walk(object, st);
+                record_attr_ref(node, object, st);
             }
-            // attribute field intentionally skipped.
         }
         "keyword_argument" => {
             // name field is not a ref; value is.
@@ -369,6 +449,8 @@ fn walk_function(node: Node, st: &mut State) {
             name: range,
             text: name.clone(),
             expansion: None,
+            module_level: false,
+            is_mod: false,
         });
         st.scopes[scope_idx].bindings.insert(name, binding_idx);
     }
@@ -393,6 +475,8 @@ fn walk_lambda(node: Node, st: &mut State) {
             name: range,
             text: name.clone(),
             expansion: None,
+            module_level: false,
+            is_mod: false,
         });
         st.scopes[scope_idx].bindings.insert(name, binding_idx);
     }
@@ -516,6 +600,96 @@ fn walk_param_child(node: Node, st: &mut State, names: &[(String, Range<usize>)]
     }
 }
 
+/// Tag `attr` as a module-attribute reference when the object chain is
+/// rooted at a module-object import binding; record it as an ordinary
+/// unresolved ref when the root cannot be resolved (it may hide a
+/// cross-module attribute spelled like the rename target).
+fn record_attr_ref(node: Node, object: Node, st: &mut State) {
+    let Some(attr) = node.child_by_field_name("attribute") else {
+        return;
+    };
+    if attr.kind() != "identifier" {
+        return;
+    }
+    // Find the root identifier and chain depth of the object.
+    let mut root = object;
+    let mut depth = 0usize;
+    while root.kind() == "attribute" {
+        depth += 1;
+        match root.child_by_field_name("object") {
+            Some(o) => root = o,
+            None => break,
+        }
+    }
+    if root.kind() != "identifier" {
+        // `f().attr`, `a[0].attr`: cannot prove property access — record
+        // the attribute as unresolved so a matching rename blocks. The
+        // attribute name is never a local-binding ref.
+        st.analysis.refs.push(RefSite {
+            name: attr.start_byte()..attr.end_byte(),
+            target: None,
+            expansion: None,
+            remote: false,
+            module_attr: None,
+        });
+        return;
+    }
+    let root_name = text(st.contents, root).to_string();
+    let target = resolve(st, &root_name, st.scopes.len() - 1);
+    match target {
+        Some(b) => {
+            if let Some(&ei) = st.module_bindings.get(&b) {
+                if depth == 0 {
+                    // Direct `m.attr`: attr names a member of module m.
+                    st.analysis.refs.push(RefSite {
+                        name: attr.start_byte()..attr.end_byte(),
+                        target: None,
+                        expansion: None,
+                        remote: false,
+                        module_attr: Some(ei),
+                    });
+                } else {
+                    // `m.sub.attr`: attr-of-module-attr — unmodeled.
+                    st.analysis.refs.push(RefSite {
+                        name: attr.start_byte()..attr.end_byte(),
+                        target: None,
+                        expansion: None,
+                        remote: false,
+                        module_attr: None,
+                    });
+                }
+            }
+            // Non-module binding: attribute is a property, not a symbol.
+        }
+        None => {
+            // Unresolved root: the attribute may hide a module member.
+            st.analysis.refs.push(RefSite {
+                name: attr.start_byte()..attr.end_byte(),
+                target: None,
+                expansion: None,
+                remote: false,
+                module_attr: None,
+            });
+        }
+    }
+}
+
+/// Push an import edge; returns its index.
+fn push_edge(st: &mut State, edge: ImportEdge) -> usize {
+    let idx = st.analysis.imports.len();
+    // Any import-bound local may name a module object (`import pkg`,
+    // `from pkg import sub`); the workspace resolver decides which.
+    // `m.attr` chains tag the edge so cross-module attributes resolve.
+    if let Some(l) = edge.local
+        && l != usize::MAX
+        && !edge.star
+    {
+        st.module_bindings.insert(l, idx);
+    }
+    st.analysis.imports.push(edge);
+    idx
+}
+
 fn walk_import(node: Node, st: &mut State, from: bool) {
     let module_name = if from {
         node.child_by_field_name("module_name")
@@ -527,31 +701,181 @@ fn walk_import(node: Node, st: &mut State, from: bool) {
         if !child.is_named() || Some(child) == module_name {
             continue;
         }
-        match child.kind() {
-            "dotted_name" | "relative_import" => {
-                // `import a` binds `a` but the module name must be
-                // preserved: rename produces `import a as NEW`.
-                // `import a.b` binds `a` yet `a.b as NEW` would rebind NEW
-                // to the submodule — there is no local spelling that
-                // preserves both, so no binding is recorded and uses of
-                // `a` stay unresolved (blocking the rename).
-                // `from m import a` binds `a` → `a as NEW` is correct.
-                let idents = count_idents(child, st);
-                if idents == 1 {
-                    bind_imported(child, st);
-                }
-            }
-            "aliased_import" => {
-                if let Some(alias) = child.child_by_field_name("alias") {
-                    bind_here(st, text(st.contents, alias), alias.start_byte()..alias.end_byte());
-                } else if let Some(name) = child.child_by_field_name("name") {
-                    bind_imported(name, st);
-                }
-            }
-            "wildcard_import" => st.has_star_import = true,
-            _ => {}
+        if from {
+            walk_from_names(child, st, module_name);
+        } else {
+            walk_plain_import(child, st);
         }
     }
+}
+
+/// `import a` / `import a.b` / `import a.b as c` — binds the top module
+/// `a` (or the alias). Multi-segment unaliased imports bind `a` but the
+/// local rename of `a` has no preserving spelling, so — matching the
+/// REFAC-7 behavior — no binding is recorded for `import a.b`; the
+/// module-object edge still lets `x.attr` chains resolve when an alias
+/// exists.
+fn walk_plain_import(node: Node, st: &mut State) {
+    match node.kind() {
+        "dotted_name" | "relative_import" => {
+            let spec = text(st.contents, node).to_string();
+            let idents = count_idents(node, st);
+            if idents == 1 {
+                // `import a`: binds module `a`.
+                let binding = bind_imported(node, st);
+                push_edge(
+                    st,
+                    ImportEdge {
+                        specifier: spec,
+                        name: String::new(),
+                        name_range: node.start_byte()..node.end_byte(),
+                        local: (binding != usize::MAX).then_some(binding),
+                        reexport: false,
+                        star: false,
+                        exported: None,
+                    },
+                );
+            } else {
+                // `import a.b`: binds `a` implicitly but renaming it has
+                // no preserving spelling — record the edge for module
+                // resolution without a local binding.
+                push_edge(
+                    st,
+                    ImportEdge {
+                        specifier: spec,
+                        name: String::new(),
+                        name_range: node.start_byte()..node.end_byte(),
+                        local: None,
+                        reexport: false,
+                        star: false,
+                        exported: None,
+                    },
+                );
+            }
+        }
+        "aliased_import" => {
+            let name_node = node.child_by_field_name("name");
+            let alias = node.child_by_field_name("alias");
+            if let (Some(n), Some(a)) = (name_node, alias) {
+                let spec = text(st.contents, n).to_string();
+                let binding = bind_target_idx(st, text(st.contents, a), a.start_byte()..a.end_byte());
+                push_edge(
+                    st,
+                    ImportEdge {
+                        specifier: spec,
+                        name: String::new(),
+                        name_range: a.start_byte()..a.end_byte(),
+                        local: Some(binding),
+                        reexport: false,
+                        star: false,
+                        exported: None,
+                    },
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `from <spec> import <names>`: each name becomes an edge carrying the
+/// imported spelling, the module specifier, and the local binding.
+fn walk_from_names(node: Node, st: &mut State, module_name: Option<Node>) {
+    let spec = module_name
+        .map(|m| text(st.contents, m).to_string())
+        .unwrap_or_default();
+    match node.kind() {
+        "wildcard_import" => {
+            st.has_star_import = true;
+            push_edge(
+                st,
+                ImportEdge {
+                    specifier: spec,
+                    name: String::new(),
+                    name_range: node.start_byte()..node.end_byte(),
+                    local: None,
+                    reexport: false,
+                    star: true,
+                    exported: None,
+                },
+            );
+        }
+        "aliased_import" => {
+            let name_node = node.child_by_field_name("name");
+            let alias = node.child_by_field_name("alias");
+            if let (Some(n), Some(a)) = (name_node, alias) {
+                // Only single-identifier names bind; dotted tails are
+                // unusual in from-imports.
+                if count_idents(n, st) == 1 {
+                    let imported = first_ident(n, st);
+                    let (iname, irange) = imported
+                        .map(|i| (text(st.contents, i).to_string(), i.start_byte()..i.end_byte()))
+                        .unwrap_or_default();
+                    let binding = bind_target_idx(
+                        st,
+                        text(st.contents, a),
+                        a.start_byte()..a.end_byte(),
+                    );
+                    push_edge(
+                        st,
+                        ImportEdge {
+                            specifier: spec,
+                            name: iname,
+                            name_range: irange,
+                            local: Some(binding),
+                            reexport: false,
+                            star: false,
+                            exported: None,
+                        },
+                    );
+                }
+            }
+        }
+        "dotted_name" | "relative_import" => {
+            if count_idents(node, st) == 1 {
+                let binding = bind_imported(node, st);
+                let local = (binding != usize::MAX).then_some(binding);
+                if let Some(i) = first_ident(node, st) {
+                    push_edge(
+                        st,
+                        ImportEdge {
+                            specifier: spec.clone(),
+                            name: text(st.contents, i).to_string(),
+                            name_range: i.start_byte()..i.end_byte(),
+                            local,
+                            reexport: false,
+                            star: false,
+                            exported: None,
+                        },
+                    );
+                }
+            }
+        }
+        _ => {
+            // import_list / parenthesized groups: recurse
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.is_named() {
+                    walk_from_names(child, st, module_name);
+                }
+            }
+        }
+    }
+}
+
+fn first_ident<'a>(node: Node<'a>, _st: &State) -> Option<Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if !child.is_named() {
+            continue;
+        }
+        if child.kind() == "identifier" {
+            return Some(child);
+        }
+        if let Some(f) = first_ident(child, _st) {
+            return Some(f);
+        }
+    }
+    None
 }
 
 fn count_idents(node: Node, st: &State) -> usize {
@@ -572,8 +896,8 @@ fn count_idents(node: Node, st: &State) -> usize {
 }
 
 /// Bind an imported name that must keep its imported spelling on rename
-/// (`OLD` → `OLD as NEW`).
-fn bind_imported(node: Node, st: &mut State) {
+/// (`OLD` → `OLD as NEW`). Returns the binding index.
+fn bind_imported(node: Node, st: &mut State) -> usize {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if !child.is_named() {
@@ -588,30 +912,39 @@ fn bind_imported(node: Node, st: &mut State) {
                 name: range,
                 text: name.clone(),
                 expansion: Some(crate::bind::Expansion::ImportAlias),
+                module_level: scope_idx == 0,
+                is_mod: false,
             });
             st.scopes[scope_idx].bindings.insert(name, binding_idx);
-            return;
+            return binding_idx;
         }
-        bind_imported(child, st);
-        return;
+        return bind_imported(child, st);
     }
+    usize::MAX
 }
 
 fn bind_here(st: &mut State, name: &str, range: Range<usize>) {
     bind_target(st, name, range, false);
 }
 
+fn bind_target_idx(st: &mut State, name: &str, range: Range<usize>) -> usize {
+    bind_target(st, name, range, false)
+}
+
 /// Binding site honoring `global`/`nonlocal` redirects. `skip_comprehension`
 /// is used for walrus targets (they bind in the containing scope).
-fn bind_target(st: &mut State, name: &str, range: Range<usize>, skip_comprehension: bool) {
+fn bind_target(st: &mut State, name: &str, range: Range<usize>, skip_comprehension: bool) -> usize {
     let scope_idx = bind_target_scope(st, name, skip_comprehension);
     let binding_idx = st.analysis.bindings.len();
     st.analysis.bindings.push(BindingSite {
         name: range,
         text: name.to_string(),
         expansion: None,
+        module_level: scope_idx == 0,
+        is_mod: false,
     });
     st.scopes[scope_idx].bindings.insert(name.to_string(), binding_idx);
+    binding_idx
 }
 
 fn bind_target_scope(st: &State, name: &str, skip_comprehension: bool) -> usize {
@@ -700,6 +1033,7 @@ fn record_ref(st: &mut State, name: &str, range: Range<usize>) {
         target,
         expansion: None,
         remote: false,
+        module_attr: None,
     });
 }
 

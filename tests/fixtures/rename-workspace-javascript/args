@@ -1,0 +1,5 @@
+--rename
+foo
+qux
+--apply
+{ROOT}

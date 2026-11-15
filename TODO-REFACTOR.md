@@ -196,7 +196,7 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
   (macro) exit-3 cases. `cargo test --workspace`, clippy `-D warnings`,
   `cargo check --workspace` pass.
 
-### REFAC-8 · P1 · Resolve ordinary workspace renames for the first wave
+### REFAC-8 · P1 · Resolve ordinary workspace renames for the first wave — DONE
 
 - **Area:** cross-file semantics
 - **Depends on:** REFAC-7
@@ -204,6 +204,7 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Extend to module declarations, explicit imports/exports, aliases and re-exports, nested workspace/package boundaries, relevant conditional configuration and public API scope reporting. Distinguish analysis roots from edit filters. Analyze dependency edges without requiring the old spelling in each file; detect incomplete relevant coverage.
 - **Accept:** Real multi-file Rust/Python/JS/TS renames update the exact reference set and preserve unrelated imports/bindings; changed alias/config and excluded required files are tested. Successful parse or leftover-text grep is not the completeness oracle. No build-script execution or LSP backend.
 - **Effort:** XL
+- **Landed:** `src/workspace.rs` module graph (JS/TS relative+dynamic `import()`/`require`, Python dotted/relative imports and `__all__`, Rust `crate::`/`self::`/`super::` module tree); import/export/re-export edges with alias-preserving expansions; same-spelling symbol clustering via canonical import resolution; per-file re-parse + binding-equivalence verification plus a post-edit cross-file resolution proof. `--rename` discovery no longer prefilters on the old spelling. Fixtures: `rename-workspace-{javascript,python,rust}`.
 
 ### REFAC-9 · P1 · Complete wave-B application and systems adapters
 

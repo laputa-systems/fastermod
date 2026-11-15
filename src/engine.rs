@@ -227,10 +227,11 @@ fn run_syntax_pipeline(
     langs: &[String],
     at_anchor: Option<&str>,
 ) -> std::result::Result<i32, Failure> {
-    // Discovery prefilter: --ident can require the literal OLD bytes;
-    // --rewrite patterns have no reliable literal head, so every candidate
-    // file is read (correctness first; REFAC-14 owns performance).
-    let matcher = if matches!(mode, Mode::Ident | Mode::Rename) {
+    // Discovery prefilter: --ident can require the literal OLD bytes.
+    // --rewrite patterns and --rename have no reliable literal head —
+    // workspace rename must analyze dependency files that never spell
+    // OLD, so every candidate file is read (REFAC-14 owns performance).
+    let matcher = if matches!(mode, Mode::Ident) {
         RegexMatcherBuilder::new()
             .build(&regex_lite::escape(pattern))
             .map_err(|e| Failure::usage(format!("Unable to make matcher: {e}")))?

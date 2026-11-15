@@ -107,6 +107,8 @@ fn map_pos(edits: &[SpanEdit], pos: usize) -> usize {
 /// Post-edit proof: re-analyze the rewritten file and confirm the renamed
 /// binding's references are exactly the edited sites and every other
 /// binding kept its reference count (no capture, no unbinding).
+/// `target: None` verifies file integrity only (no renamed binding —
+/// used for files touched solely by import-specifier or attribute edits).
 /// Offset of the NEW identifier inside an expansion's replacement text.
 /// `NEW as OLD` puts it first; every other template ends with NEW.
 fn new_offset(expansion: Option<Expansion>, replacement: &str, new: &str) -> usize {
@@ -123,9 +125,9 @@ fn verify_rename(
     contents: &str,
     path: &std::path::Path,
     old_analysis: &Analysis,
-    target: usize,
+    target: Option<usize>,
     edits: &[SpanEdit],
-    new_decl: Range<usize>,
+    new_decl: Option<Range<usize>>,
     ref_new_starts: &std::collections::HashSet<usize>,
 ) -> std::result::Result<(), Failure> {
     let mut after = contents.to_string();
@@ -137,35 +139,37 @@ fn verify_rename(
             "post-edit parse failed; refusing rename",
         ));
     };
-    // Locate the renamed binding at its mapped declaration site.
-    let renamed = analysis
-        .bindings
-        .iter()
-        .position(|b| b.name.start == new_decl.start && b.name.end == new_decl.end)
-        .ok_or_else(|| {
-            Failure::analysis("post-edit resolution: renamed declaration not found")
-        })?;
-    let expected_refs = old_analysis.refs_of(target).len();
-    let renamed_refs = analysis.refs_of(renamed);
-    if renamed_refs.len() != expected_refs {
-        return Err(Failure::analysis(format!(
-            "post-edit resolution: renamed binding has {} reference(s), expected {expected_refs} (capture or unbinding)",
-            renamed_refs.len()
-        )));
-    }
-    // Every reference of the renamed binding must sit on an edited span.
-    for r in &renamed_refs {
-        if !ref_new_starts.contains(&r.name.start) {
+    if let (Some(target), Some(new_decl)) = (target, new_decl) {
+        // Locate the renamed binding at its mapped declaration site.
+        let renamed = analysis
+            .bindings
+            .iter()
+            .position(|b| b.name.start == new_decl.start && b.name.end == new_decl.end)
+            .ok_or_else(|| {
+                Failure::analysis("post-edit resolution: renamed declaration not found")
+            })?;
+        let expected_refs = old_analysis.refs_of(target).len();
+        let renamed_refs = analysis.refs_of(renamed);
+        if renamed_refs.len() != expected_refs {
             return Err(Failure::analysis(format!(
-                "post-edit resolution: renamed binding gained an unedited reference at bytes {}..{} (capture)",
-                r.name.start, r.name.end
+                "post-edit resolution: renamed binding has {} reference(s), expected {expected_refs} (capture or unbinding)",
+                renamed_refs.len()
             )));
+        }
+        // Every reference of the renamed binding must sit on an edited span.
+        for r in &renamed_refs {
+            if !ref_new_starts.contains(&r.name.start) {
+                return Err(Failure::analysis(format!(
+                    "post-edit resolution: renamed binding gained an unedited reference at bytes {}..{} (capture)",
+                    r.name.start, r.name.end
+                )));
+            }
         }
     }
     // Every other binding must keep its declaration site and reference
     // count — a changed count means capture or accidental unbinding.
     for (j, old_binding) in old_analysis.bindings.iter().enumerate() {
-        if j == target {
+        if Some(j) == target {
             continue;
         }
         // A dual-role token (e.g. `use m::target`'s bound name, which is
@@ -207,6 +211,363 @@ fn verify_rename(
             )));
         }
     }
+    Ok(())
+}
+
+/// Expansion lookup for a token range: bindings first, then refs.
+fn expansion_at(
+    ctxs: &[crate::workspace::FileCtx<'_>],
+    file: usize,
+    range: &Range<usize>,
+) -> Option<Expansion> {
+    let a = ctxs[file].analysis;
+    for b in &a.bindings {
+        if b.name == *range {
+            return b.expansion;
+        }
+    }
+    for r in &a.refs {
+        if r.name == *range {
+            return r.expansion;
+        }
+    }
+    None
+}
+
+/// The defining binding for a same-spelling cluster: canonical roots
+/// preferred, module-level non-`mod` roots win.
+fn symbol_def(
+    ctxs: &[crate::workspace::FileCtx<'_>],
+    cluster: &[(usize, usize)],
+) -> (usize, usize) {
+    let mut defs: Vec<(usize, usize)> = Vec::new();
+    for &m in cluster {
+        let d = crate::workspace::canonical(ctxs, m.0, m.1, 0).unwrap_or(m);
+        if !defs.contains(&d) {
+            defs.push(d);
+        }
+    }
+    let roots: Vec<_> = defs
+        .iter()
+        .copied()
+        .filter(|&d| crate::workspace::canonical(ctxs, d.0, d.1, 0).is_none())
+        .collect();
+    let pool: Vec<_> = if roots.is_empty() { defs.clone() } else { roots };
+    pool.iter()
+        .copied()
+        .find(|&(f, b)| {
+            let bb = &ctxs[f].analysis.bindings[b];
+            bb.module_level && !bb.is_mod
+        })
+        .unwrap_or(pool[0])
+}
+
+/// Cross-file rename: expand the defining binding's mentions across the
+/// module graph, verify each touched file, then prove no `old`-spelled
+/// edge or attribute was left unresolved.
+fn run_workspace(
+    ctxs: &[crate::workspace::FileCtx<'_>],
+    def: (usize, usize),
+    old: &str,
+    new: &str,
+    run: &mut SyntaxRun,
+) -> std::result::Result<(), Failure> {
+    let (df, db) = def;
+    let def_binding = &ctxs[df].analysis.bindings[db];
+    if def_binding.is_mod {
+        return Err(Failure::analysis(format!(
+            "cannot rename module {:?}: renaming a `mod` requires renaming its file, which is not supported",
+            old
+        )));
+    }
+    let (mentions, blockers) = crate::workspace::collect_mentions(ctxs, df, db);
+    if !blockers.is_empty() {
+        let mut msg = format!(
+            "cannot rename {old:?}: {} unresolved module reference(s) may refer to it",
+            blockers.len()
+        );
+        for (fi, range) in blockers.iter().take(10) {
+            let c = &ctxs[*fi].file.contents;
+            let anchor = anchor_for(c, range.start);
+            msg.push_str(&format!(
+                "\n  {}:{}:{}",
+                ctxs[*fi].file.path.display(),
+                anchor.line,
+                anchor.column
+            ));
+        }
+        return Err(Failure::analysis(msg));
+    }
+    // Any inexact analyzer may hide `old` occurrences that refer to the
+    // symbol (star imports, macros, dynamic access) — block on all of
+    // them across every analyzed file, not just the defining file.
+    for c in ctxs.iter() {
+        if c.analysis.unresolved_is_exact {
+            continue;
+        }
+        // A token already covered by an import edge is resolved (or
+        // blocked) by `collect_mentions` — don't double-count it here.
+        let edge_ranges: std::collections::HashSet<&Range<usize>> = c
+            .analysis
+            .imports
+            .iter()
+            .map(|e| &e.name_range)
+            .collect();
+        let unresolved: Vec<_> = c
+            .analysis
+            .unresolved_named(&c.file.contents, old)
+            .into_iter()
+            .filter(|r| !edge_ranges.contains(r))
+            .collect();
+        if unresolved.is_empty() {
+            continue;
+        }
+        let mut msg = format!(
+            "cannot rename {old:?}: {} unresolved reference(s) in {} may refer to it",
+            unresolved.len(),
+            c.file.path.display()
+        );
+        for r in unresolved.iter().take(10) {
+            let anchor = anchor_for(&c.file.contents, r.start);
+            msg.push_str(&format!("\n  {}:{}", anchor.line, anchor.column));
+        }
+        return Err(Failure::analysis(msg));
+    }
+
+    // Group mentions per file; expand unaliased import locals to their
+    // references (the local binding takes the new name too).
+    let mut by_file: std::collections::BTreeMap<usize, Vec<crate::workspace::Mention>> =
+        std::collections::BTreeMap::new();
+    for m in mentions {
+        by_file.entry(m.file).or_default().push(m);
+    }
+    for (fi, ms) in by_file.iter_mut() {
+        let mut extra: Vec<crate::workspace::Mention> = Vec::new();
+        for m in ms.iter() {
+            if let Some(b) = m.local_binding {
+                let bb = &ctxs[*fi].analysis.bindings[b];
+                // Unaliased: the mention range IS the binding's name
+                // token, so the local binding (and its refs) renames.
+                if bb.name == m.range {
+                    for r in ctxs[*fi].analysis.refs_of(b) {
+                        extra.push(crate::workspace::Mention {
+                            file: *fi,
+                            range: r.name.clone(),
+                            local_binding: None,
+                        });
+                    }
+                }
+            }
+        }
+        ms.extend(extra);
+        // Dedupe by range — a `use` tail token can be both a path ref
+        // and the edge's name token.
+        let mut seen = std::collections::HashSet::new();
+        ms.retain(|m| seen.insert(m.range.clone()));
+    }
+
+    // Build per-file edits with expansion lookup, then verify.
+    let mut touched_files = 0usize;
+    let mut file_edits: std::collections::BTreeMap<usize, Vec<SpanEdit>> =
+        std::collections::BTreeMap::new();
+    for (fi, ms) in &by_file {
+        let ctx = &ctxs[*fi];
+        let file = ctx.file;
+        let mut sites: Vec<(SpanEdit, Option<Expansion>)> = Vec::new();
+        for m in ms {
+            // A token coinciding with an import edge's name range denotes
+            // the *remote* spelling: both sides of an unaliased edge
+            // rename together, so it becomes plain NEW. Every other
+            // position keeps its coupled-syntax expansion (`export {
+            // foo }` -> `qux as foo`, `{ foo }` -> `foo: qux`).
+            let is_edge = ctx
+                .analysis
+                .imports
+                .iter()
+                .any(|e| e.name_range == m.range);
+            let (rep, exp) = if is_edge {
+                (new.to_string(), None)
+            } else {
+                let is_decl = ctx.analysis.bindings.iter().any(|b| b.name == m.range);
+                let exp = expansion_at(ctxs, *fi, &m.range);
+                (expand_replacement(exp, old, new, is_decl), exp)
+            };
+            sites.push((
+                SpanEdit {
+                    byte_start: m.range.start,
+                    byte_end: m.range.end,
+                    replacement: rep,
+                    kind: EditKind::RenameReference,
+                    anchor: anchor_for(&file.contents, m.range.start),
+                },
+                exp,
+            ));
+        }
+        sites.sort_by_key(|(e, _)| e.byte_start);
+        let edits: Vec<SpanEdit> = sites.iter().map(|(e, _)| e.clone()).collect();
+
+        // Renamed bindings in this file: the def (when present) plus
+        // every unaliased import local.
+        let mut renamed: Vec<usize> = Vec::new();
+        if *fi == df {
+            renamed.push(db);
+        }
+        for m in ms {
+            if let Some(b) = m.local_binding {
+                let bb = &ctx.analysis.bindings[b];
+                if bb.name == m.range && !renamed.contains(&b) {
+                    renamed.push(b);
+                }
+            }
+        }
+
+        // Post-edit verification per renamed binding.
+        for &b in &renamed {
+            let bb = &ctx.analysis.bindings[b];
+            let decl_edit = edits
+                .iter()
+                .position(|e| e.byte_start == bb.name.start && e.byte_end == bb.name.end)
+                .ok_or_else(|| {
+                    Failure::analysis("internal: renamed binding decl edit missing")
+                })?;
+            let (decl_exp, _) = {
+                let e = &sites[decl_edit];
+                (e.1, &e.0)
+            };
+            let decl_off = new_offset(decl_exp, &sites[decl_edit].0.replacement, new);
+            let new_start = map_pos(&edits, bb.name.start) + decl_off;
+            let new_decl = new_start..new_start + new.len();
+            let mut ref_starts = std::collections::HashSet::new();
+            for r in ctx.analysis.refs_of(b) {
+                if let Some(pos) = edits.iter().position(|e| {
+                    e.byte_start == r.name.start && e.byte_end == r.name.end
+                }) {
+                    let (rexp, _) = {
+                        let e = &sites[pos];
+                        (e.1, &e.0)
+                    };
+                    let off = new_offset(rexp, &sites[pos].0.replacement, new);
+                    ref_starts.insert(map_pos(&edits, r.name.start) + off);
+                }
+            }
+            verify_rename(
+                ctx.spec,
+                &file.contents,
+                &file.path,
+                ctx.analysis,
+                Some(b),
+                &edits,
+                Some(new_decl),
+                &ref_starts,
+            )?;
+        }
+        if renamed.is_empty() {
+            verify_rename(
+                ctx.spec,
+                &file.contents,
+                &file.path,
+                ctx.analysis,
+                None,
+                &edits,
+                None,
+                &std::collections::HashSet::new(),
+            )?;
+        }
+        touched_files += 1;
+        file_edits.insert(*fi, edits.clone());
+        if let Some(planned) = syntax::finish_file(file, edits) {
+            run.files.push(planned);
+        }
+    }
+
+    // Cross-file proof: re-analyze touched files and confirm (a) the
+    // defining module still resolves `new` at the renamed declaration
+    // and (b) no `old`-spelled edge, attribute, or inexact unresolved
+    // occurrence remains that could still refer to the old symbol.
+    let mut new_analyses: Vec<Analysis> = ctxs.iter().map(|c| c.analysis.clone()).collect();
+    let mut new_files: Vec<SourceFile> = ctxs.iter().map(|c| c.file.clone()).collect();
+    for (fi, edits) in &file_edits {
+        let ctx = &ctxs[*fi];
+        let file = ctx.file;
+        let mut after = file.contents.clone();
+        for e in edits.iter().rev() {
+            after.replace_range(e.byte_start..e.byte_end, &e.replacement);
+        }
+        let Some(analysis) = analyze(ctx.spec, &after, &file.path) else {
+            return Err(Failure::analysis(
+                "post-edit parse failed; refusing workspace rename",
+            ));
+        };
+        new_analyses[*fi] = analysis;
+        new_files[*fi].contents = after;
+    }
+    let ctxs2: Vec<crate::workspace::FileCtx<'_>> = ctxs
+        .iter()
+        .enumerate()
+        .map(|(i, c)| crate::workspace::FileCtx {
+            file: &new_files[i],
+            spec: c.spec,
+            analysis: &new_analyses[i],
+        })
+        .collect();
+    // The renamed symbol must still resolve under its new spelling.
+    match crate::workspace::resolve_name(&ctxs2, df, new, 0) {
+        Some((f, b)) if f == df && new_analyses[df].bindings[b].text == new => {}
+        _ => {
+            return Err(Failure::analysis(
+                "post-edit resolution: renamed symbol no longer resolves in its module",
+            ));
+        }
+    }
+    // Leftover check: any `old`-spelled internal edge or module
+    // attribute that now fails to resolve is a missed reference.
+    for (fi, c) in ctxs2.iter().enumerate() {
+        for edge in &c.analysis.imports {
+            if edge.star || edge.name != old {
+                continue;
+            }
+            if crate::workspace::resolve_edge(&ctxs2, fi, edge, 0) == crate::workspace::MemberTarget::Unresolved {
+                return Err(Failure::analysis(format!(
+                    "post-edit resolution: leftover unresolved import of {old:?} in {}",
+                    c.file.path.display()
+                )));
+            }
+        }
+        for r in &c.analysis.refs {
+            let Some(ei) = r.module_attr else {
+                continue;
+            };
+            if &c.file.contents[r.name.clone()] != old {
+                continue;
+            }
+            let edge = &c.analysis.imports[ei];
+            if crate::workspace::resolve_edge(&ctxs2, fi, edge, 0) == crate::workspace::MemberTarget::Unresolved {
+                return Err(Failure::analysis(format!(
+                    "post-edit resolution: leftover unresolved attribute {old:?} in {}",
+                    c.file.path.display()
+                )));
+            }
+        }
+        if !c.analysis.unresolved_is_exact {
+            let leftover = c.analysis.unresolved_named(&c.file.contents, old);
+            if !leftover.is_empty() {
+                return Err(Failure::analysis(format!(
+                    "post-edit resolution: {} unresolved {old:?} occurrence(s) remain in {}",
+                    leftover.len(),
+                    c.file.path.display()
+                )));
+            }
+        }
+    }
+    run.diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "workspace-rename".to_string(),
+        message: format!(
+            "workspace rename of {old:?} -> {new:?} across {} analyzed file(s); files outside the discovery roots are not analyzed",
+            touched_files
+        ),
+        path: None,
+    });
     Ok(())
 }
 
@@ -269,15 +630,19 @@ pub(crate) fn run_rename(
         }
     }
 
-    // Select the target binding.
-    let mut candidates: Vec<(usize, usize)> = Vec::new(); // (analyzed idx, binding idx)
-    for (ai, a) in analyzed.iter().enumerate() {
-        for (bi, b) in a.analysis.bindings.iter().enumerate() {
-            if b.text == old {
-                candidates.push((ai, bi));
-            }
-        }
-    }
+    // Cross-file view over the analyzed files (indices match `analyzed`).
+    let ctxs: Vec<crate::workspace::FileCtx<'_>> = analyzed
+        .iter()
+        .map(|a| crate::workspace::FileCtx {
+            file: &files[a.file_index],
+            spec: a.spec,
+            analysis: &a.analysis,
+        })
+        .collect();
+
+    // Select the target symbol. Same-spelling bindings are grouped into
+    // clusters by import-edge canonicalization: an importer's `foo` and
+    // the module's `foo` are one symbol, unrelated `foo`s are not.
     let selected = if let Some(anchor) = at_anchor {
         let (anchor_path, line, col) = parse_anchor(anchor).map_err(Failure::usage)?;
         let norm = |p: &std::path::Path| {
@@ -338,46 +703,54 @@ pub(crate) fn run_rename(
                 binding.text
             )));
         }
-        (ai, bi)
+        crate::workspace::canonical(&ctxs, ai, bi, 0).unwrap_or((ai, bi))
     } else {
-        match candidates.len() {
-            0 => {
-                // Distinguish "no such binding" from "unresolved occurrences".
-                let mut unresolved = Vec::new();
-                for a in &analyzed {
-                    unresolved.extend(
-                        a.analysis
-                            .unresolved_named(&files[a.file_index].contents, old)
-                            .into_iter()
-                            .map(|r| (a.file_index, r)),
-                    );
-                }
-                if unresolved.is_empty() {
-                    return Err(Failure::analysis(format!(
-                        "no binding named {old:?} in the analyzed files"
-                    )));
-                }
-                let mut msg = format!(
-                    "cannot rename {old:?}: {} unresolved reference(s) may refer to it",
-                    unresolved.len()
+        let clusters = crate::workspace::symbol_clusters(&ctxs, old);
+        if clusters.is_empty() {
+            // Distinguish "no such binding" from "unresolved occurrences".
+            let mut unresolved = Vec::new();
+            for a in &analyzed {
+                unresolved.extend(
+                    a.analysis
+                        .unresolved_named(&files[a.file_index].contents, old)
+                        .into_iter()
+                        .map(|r| (a.file_index, r)),
                 );
-                for (fi, r) in unresolved.iter().take(10) {
-                    let c = &files[*fi].contents;
-                    let anchor = anchor_for(c, r.start);
-                    msg.push_str(&format!(
-                        "\n  {}:{}:{}", files[*fi].path.display(), anchor.line, anchor.column
-                    ));
-                }
-                return Err(Failure::analysis(msg));
             }
-            1 => candidates[0],
+            if unresolved.is_empty() {
+                return Err(Failure::analysis(format!(
+                    "no binding named {old:?} in the analyzed files"
+                )));
+            }
+            let mut msg = format!(
+                "cannot rename {old:?}: {} unresolved reference(s) may refer to it",
+                unresolved.len()
+            );
+            for (fi, r) in unresolved.iter().take(10) {
+                let c = &files[*fi].contents;
+                let anchor = anchor_for(c, r.start);
+                msg.push_str(&format!(
+                    "\n  {}:{}:{}", files[*fi].path.display(), anchor.line, anchor.column
+                ));
+            }
+            return Err(Failure::analysis(msg));
+        }
+        let mut unique: Vec<(usize, usize)> = Vec::new();
+        for c in &clusters {
+            let d = symbol_def(&ctxs, c);
+            if !unique.contains(&d) {
+                unique.push(d);
+            }
+        }
+        match unique.len() {
+            1 => unique[0],
             _ => {
                 let mut msg = format!(
                     "{old:?} is bound {} times; use --at to select one:\n",
-                    candidates.len()
+                    unique.len()
                 );
-                for (ai, bi) in candidates.iter().take(20) {
-                    let a = &analyzed[*ai];
+                for (fi, bi) in unique.iter().take(20) {
+                    let a = &analyzed[*fi];
                     let b = &a.analysis.bindings[*bi];
                     let c = &files[a.file_index].contents;
                     let anchor = anchor_for(c, b.name.start);
@@ -393,6 +766,24 @@ pub(crate) fn run_rename(
             }
         }
     };
+
+    // `mod` declarations name files, not in-file symbols: renaming one
+    // requires a file rename, which is out of scope — refuse everywhere.
+    if analyzed[selected.0].analysis.bindings[selected.1].is_mod {
+        return Err(Failure::analysis(format!(
+            "cannot rename module {:?}: renaming a `mod` requires renaming its file, which is not supported",
+            old
+        )));
+    }
+
+    // A module-level non-`mod` definition means the symbol is reachable
+    // through the module graph: run the workspace path. Everything else
+    // keeps the REFAC-7 single-file behavior.
+    let def_binding = &analyzed[selected.0].analysis.bindings[selected.1];
+    if def_binding.module_level && !def_binding.is_mod {
+        run_workspace(&ctxs, selected, old, new, &mut run)?;
+        return Ok(run);
+    }
 
     // Build edits for the selected binding only, tracking where NEW lands
     // inside each replacement (expansions embed it at a nonzero offset).
@@ -469,9 +860,9 @@ pub(crate) fn run_rename(
         &file.contents,
         &file.path,
         &target.analysis,
-        binding_idx,
+        Some(binding_idx),
         &edits,
-        new_decl,
+        Some(new_decl),
         &ref_new_starts,
     )?;
 

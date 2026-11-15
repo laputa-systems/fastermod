@@ -14,6 +14,8 @@ pub(crate) enum BindingSupport {
     None,
     /// Local binding rename implemented (wave A JS/TS via oxc).
     Local,
+    /// Workspace (cross-file) rename implemented (wave A).
+    Workspace,
 }
 
 pub(crate) struct LangSpec {
@@ -50,7 +52,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Rust,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::Local,
+        binding: BindingSupport::Workspace,
         license: "MIT (tree-sitter-rust)",
         limitations: "identifiers inside macro invocations are matched syntactically only; lifetime and label names are not identifier tokens",
         fixtures: &["ident-rust", "rewrite-rust", "rename-rust"],
@@ -61,7 +63,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Python,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::Local,
+        binding: BindingSupport::Workspace,
         license: "MIT (tree-sitter-python)",
         limitations: "dynamic attribute access and __getattr__ targets are invisible to syntax matching",
         fixtures: &["ident-python", "rewrite-python", "rename-python"],
@@ -72,7 +74,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::JavaScript,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::Local,
+        binding: BindingSupport::Workspace,
         license: "MIT (tree-sitter-javascript)",
         limitations: "JSX in .js files parses only when unambiguous; dynamic property access obj[name] is not a rename site",
         fixtures: &["ident-javascript", "rewrite-javascript", "rename-javascript"],
@@ -83,7 +85,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::TypeScript,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::Local,
+        binding: BindingSupport::Workspace,
         license: "MIT (tree-sitter-typescript)",
         limitations: "type positions and value positions share the identifier token rule; JSX is not parsed in .ts files",
         fixtures: &["ident-typescript", "rewrite-typescript", "rename-typescript"],
@@ -94,7 +96,7 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Tsx,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::Local,
+        binding: BindingSupport::Workspace,
         license: "MIT (tree-sitter-typescript)",
         limitations: "same grammar as typescript with JSX enabled; angle-bracket type assertions are ambiguous with JSX and are not supported",
         fixtures: &["ident-tsx", "rewrite-tsx", "rename-typescript"],

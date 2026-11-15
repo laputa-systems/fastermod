@@ -14,7 +14,7 @@ use std::ops::Range;
 use ast_grep_core::tree_sitter::LanguageExt;
 use tree_sitter::{Node, Parser};
 
-use crate::bind::{Analysis, BindingSite, Expansion, RefSite};
+use crate::bind::{Analysis, BindingSite, Expansion, ImportEdge, ModDecl, RefSite};
 use crate::lang::LangSpec;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -45,6 +45,9 @@ struct State<'a> {
     /// Inner item-namespace scope for path-able items (mod/trait/enum),
     /// aligned with `analysis.bindings`.
     binding_inner: Vec<Option<usize>>,
+    /// binding index -> import edge index for module-object `use` binds
+    /// (`use a::b`, `use a::b as c` where b is a module).
+    module_bindings: std::collections::HashMap<usize, usize>,
     contents: &'a [u8],
 }
 
@@ -67,6 +70,7 @@ pub(crate) fn analyze(
         stack: Vec::new(),
         binding_scope: Vec::new(),
         binding_inner: Vec::new(),
+        module_bindings: std::collections::HashMap::new(),
         contents: contents.as_bytes(),
     };
     walk(root, &mut st);
@@ -198,6 +202,14 @@ fn walk(node: Node, st: &mut State) {
             }
         }
         "mod_item" => {
+            if node.child_by_field_name("body").is_none()
+                && let Some(name) = item_name(node)
+            {
+                st.analysis.mod_decls.push(ModDecl {
+                    name: text(st.contents, name).to_string(),
+                    name_range: name.start_byte()..name.end_byte(),
+                });
+            }
             if let Some(body) = node.child_by_field_name("body") {
                 let inner = push_scope(st, ScopeKind::Module);
                 link_inner_scope(st, node, inner);
@@ -303,7 +315,7 @@ fn walk(node: Node, st: &mut State) {
             }
         }
         "scoped_identifier" | "scoped_type_identifier" => {
-            walk_path(node, st, None, None);
+            walk_path(node, st, None, None, true);
         }
         "generic_function" => {
             if let Some(function) = node.child_by_field_name("function") {
@@ -396,7 +408,12 @@ fn prescan_items(node: Node, st: &mut State) {
             | "trait_item" | "mod_item" | "type_item" | "const_item"
             | "static_item" | "macro_definition" => {
                 if let Some(name) = item_name(child) {
+                    let is_mod = child.kind() == "mod_item";
+                    let before = st.analysis.bindings.len();
                     bind_here(st, text(st.contents, name), name.start_byte()..name.end_byte());
+                    if is_mod && st.analysis.bindings.len() > before {
+                        st.analysis.bindings[before].is_mod = true;
+                    }
                 }
             }
             "use_declaration" => prescan_use(child, st),
@@ -599,6 +616,7 @@ fn walk_path(
     st: &mut State,
     base: Option<usize>,
     tail_expansion: Option<Expansion>,
+    emit_path_edge: bool,
 ) -> Option<usize> {
     let segments = path_segments(node);
     let ident_count = segments
@@ -611,12 +629,18 @@ fn walk_path(
     let mut first_real = true;
     let mut anchored = base.is_some();
     let mut last_inner = None;
+    // For cross-file path edges: the first segment's kind/name/resolution.
+    let mut first_keyword = false;
+    let mut first_binding: Option<usize> = None;
+    let mut last_ident: Option<Node> = None;
+    let mut last_target: Option<usize> = None;
     for seg in segments.iter() {
         if !seg.is_named() {
             continue;
         }
         match seg.kind() {
             "self" => {
+                first_keyword = true;
                 scope = nearest_scope_of_kind(st, ScopeKind::Module);
                 prev_inner = None;
                 first_real = true;
@@ -624,6 +648,7 @@ fn walk_path(
                 continue;
             }
             "crate" => {
+                first_keyword = true;
                 scope = crate_root_scope(st);
                 prev_inner = None;
                 first_real = true;
@@ -631,6 +656,7 @@ fn walk_path(
                 continue;
             }
             "super" => {
+                first_keyword = true;
                 scope = parent_module_scope(st);
                 prev_inner = None;
                 first_real = true;
@@ -648,6 +674,7 @@ fn walk_path(
         let range = seg.start_byte()..seg.end_byte();
         let (target, remote) = if first_real {
             first_real = false;
+            first_binding = target_hint(st, scope, &name);
             let from = scope.unwrap_or_else(|| cur_scope(st));
             let t = resolve(st, &name, from);
             anchored = anchored || t.is_some();
@@ -665,8 +692,59 @@ fn walk_path(
         }
         let exp = if is_tail { tail_expansion } else { None };
         push_ref(st, range, target, exp, remote);
+        if is_tail {
+            last_ident = Some(*seg);
+            last_target = target;
+        }
+    }
+    // Cross-file path edge: an unresolved tail of a module-rooted path
+    // (`m::f`, `crate::m::f`, `self::m::f`, `b::f` through a module-use
+    // binding) may name a symbol in another file.
+    if emit_path_edge
+        && ident_count >= 2
+        && last_target.is_none()
+        && let Some(tail) = last_ident
+    {
+        let moduleish = first_keyword
+            || first_binding.is_some_and(|b| {
+                st.analysis.bindings[b].is_mod || st.module_bindings.contains_key(&b)
+            });
+        if moduleish {
+            let mut spec_segs: Vec<String> = Vec::new();
+            for seg in segments.iter() {
+                if seg.start_byte() == tail.start_byte() && seg.end_byte() == tail.end_byte() {
+                    break;
+                }
+                if seg.is_named()
+                    && (is_ident_kind(seg.kind())
+                        || matches!(seg.kind(), "self" | "crate" | "super"))
+                {
+                    spec_segs.push(text(st.contents, *seg).to_string());
+                }
+            }
+            let name = text(st.contents, tail).to_string();
+            push_use_edge(
+                st,
+                ImportEdge {
+                    specifier: spec_segs.join("::"),
+                    name,
+                    name_range: tail.start_byte()..tail.end_byte(),
+                    local: None,
+                    reexport: false,
+                    star: false,
+                    exported: None,
+                },
+            );
+        }
     }
     last_inner
+}
+
+/// Resolve the first path segment without consuming scope state — used
+/// only to decide whether an unresolved tail looks module-rooted.
+fn target_hint(st: &State, scope: Option<usize>, name: &str) -> Option<usize> {
+    let from = scope.unwrap_or_else(|| cur_scope(st));
+    resolve(st, name, from)
 }
 
 fn nearest_scope_of_kind(st: &State, kind: ScopeKind) -> Option<usize> {
@@ -714,7 +792,7 @@ fn walk_use_arg_refs(node: Node, st: &mut State, base: Option<usize>) {
         "use_as_clause" => {
             if let Some(path) = node.child_by_field_name("path") {
                 if matches!(path.kind(), "scoped_identifier" | "scoped_type_identifier") {
-                    walk_path(path, st, None, None);
+                    walk_path(path, st, None, None, false);
                 } else {
                     walk_use_arg_refs(path, st, base);
                 }
@@ -737,7 +815,7 @@ fn walk_use_arg_refs(node: Node, st: &mut State, base: Option<usize>) {
             } else {
                 None
             };
-            let inner = walk_path(node, st, base, tail);
+            let inner = walk_path(node, st, base, tail, false);
             // `use a::{b, c}` — the name field may itself be a list whose
             // items resolve inside this path's last binding.
             if let Some(nm) = name
@@ -769,39 +847,204 @@ fn walk_use_arg_refs(node: Node, st: &mut State, base: Option<usize>) {
     }
 }
 
-/// Prescan half of use_declaration: bind names without recording refs.
+/// Prescan half of use_declaration: bind names and record import edges.
 fn prescan_use(node: Node, st: &mut State) {
+    let reexport = node
+        .children(&mut node.walk())
+        .any(|c| c.kind() == "visibility_modifier");
     if let Some(arg) = node.child_by_field_name("argument") {
-        prescan_use_arg(arg, st);
+        prescan_use_arg(arg, st, &mut Vec::new(), reexport);
     }
 }
 
-fn prescan_use_arg(node: Node, st: &mut State) {
+/// `prefix` holds the `::`-joined module path accumulated from enclosing
+/// `use a::{...}` groups. Leaf items emit an [`ImportEdge`] pairing the
+/// module-side specifier with the imported name and its local binding.
+fn prescan_use_arg(node: Node, st: &mut State, prefix: &mut Vec<String>, reexport: bool) {
     match node.kind() {
         "use_as_clause" => {
-            if let Some(alias) = node.child_by_field_name("alias") {
-                bind_here(st, text(st.contents, alias), alias.start_byte()..alias.end_byte());
+            if let Some(path) = node.child_by_field_name("path") {
+                // `use a::b as c`: path's last segment is the imported
+                // name, the alias is the local binding. The path may be
+                // a bare identifier (`{foo as bar}`) — path_segments
+                // only walks scoped chains.
+                let segs = if is_ident_kind(path.kind())
+                    || matches!(path.kind(), "self" | "crate" | "super")
+                {
+                    vec![path]
+                } else {
+                    path_segments(path)
+                };
+                if let Some((last, rest)) = segs.split_last() {
+                    let mut full = prefix.clone();
+                    full.extend(rest.iter().map(|n| text(st.contents, *n).to_string()));
+                    let name = text(st.contents, *last).to_string();
+                    let range = last.start_byte()..last.end_byte();
+                    if let Some(alias) = node.child_by_field_name("alias") {
+                        let aname = text(st.contents, alias).to_string();
+                        let arange = alias.start_byte()..alias.end_byte();
+                        let local = bind_here(st, &aname, arange);
+                        push_use_edge(
+                            st,
+                            ImportEdge {
+                                specifier: full.join("::"),
+                                name,
+                                name_range: range,
+                                local: Some(local),
+                                reexport,
+                                star: false,
+                                exported: reexport.then_some(aname),
+                            },
+                        );
+                    }
+                }
             }
         }
-        "use_list" | "scoped_use_list" => {
+        "use_wildcard" => {
+            push_use_edge(
+                st,
+                ImportEdge {
+                    specifier: prefix.join("::"),
+                    name: String::new(),
+                    name_range: node.start_byte()..node.end_byte(),
+                    local: None,
+                    reexport,
+                    star: true,
+                    exported: None,
+                },
+            );
+        }
+        "use_list" => {
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.is_named() {
-                    prescan_use_arg(child, st);
+                    prescan_use_arg(child, st, prefix, reexport);
                 }
             }
+        }
+        "scoped_use_list" => {
+            // `a::b::{...}` — the first named child is the module path,
+            // the second the brace list. Extend the prefix with the
+            // path's segments, then descend into the list only; the
+            // path itself binds nothing.
+            let mut cursor = node.walk();
+            let mut path_node = None;
+            let mut list_node = None;
+            for child in node.children(&mut cursor) {
+                if !child.is_named() {
+                    continue;
+                }
+                match child.kind() {
+                    "use_list" | "scoped_use_list" => list_node = Some(child),
+                    _ => path_node = Some(child),
+                }
+            }
+            let saved = prefix.len();
+            if let Some(p) = path_node {
+                for seg in path_segments(p) {
+                    if is_ident_kind(seg.kind())
+                        || matches!(seg.kind(), "self" | "crate" | "super")
+                    {
+                        prefix.push(text(st.contents, seg).to_string());
+                    }
+                }
+            }
+            if let Some(l) = list_node {
+                prescan_use_arg(l, st, prefix, reexport);
+            }
+            prefix.truncate(saved);
         }
         "scoped_identifier" | "scoped_type_identifier" => {
             if let Some(name) = node.child_by_field_name("name") {
                 if matches!(name.kind(), "use_list" | "scoped_use_list") {
-                    prescan_use_arg(name, st);
+                    // `use a::{...}` — extend the prefix with this
+                    // path's segments, then descend.
+                    let saved = prefix.len();
+                    for seg in path_segments(node) {
+                        if is_ident_kind(seg.kind()) || matches!(seg.kind(), "self" | "crate" | "super") {
+                            prefix.push(text(st.contents, seg).to_string());
+                        }
+                    }
+                    prescan_use_arg(name, st, prefix, reexport);
+                    prefix.truncate(saved);
                 } else if is_ident_kind(name.kind()) {
-                    bind_imported(st, text(st.contents, name), name.start_byte()..name.end_byte());
+                    let segs = path_segments(node);
+                    let mut full = prefix.clone();
+                    // path_segments ends with the name segment itself;
+                    // drop it to get the module specifier.
+                    if segs.len() >= 2 {
+                        full.extend(
+                            segs[..segs.len() - 1]
+                                .iter()
+                                .map(|n| text(st.contents, *n).to_string()),
+                        );
+                    } else if let Some(p) = node.child_by_field_name("path") {
+                        full.push(text(st.contents, p).to_string());
+                    }
+                    let name_text = text(st.contents, name).to_string();
+                    let range = name.start_byte()..name.end_byte();
+                    let local = bind_imported(st, &name_text, range.clone());
+                    push_use_edge(
+                        st,
+                        ImportEdge {
+                            specifier: full.join("::"),
+                            name: name_text.clone(),
+                            name_range: range,
+                            local: Some(local),
+                            reexport,
+                            star: false,
+                            exported: None,
+                        },
+                    );
+                    if name_text == "self" || name.kind() == "self" {
+                        // unreachable guard; self handled below
+                    }
+                } else if name.kind() == "self" {
+                    // `use a::b::{self}` binds module `b` itself.
+                    let segs = path_segments(node);
+                    let mut full = prefix.clone();
+                    full.extend(
+                        segs.iter()
+                            .filter(|n| is_ident_kind(n.kind()))
+                            .map(|n| text(st.contents, *n).to_string()),
+                    );
+                    let spec = full.join("::");
+                    let leaf = spec.rsplit("::").next().unwrap_or("").to_string();
+                    let range = name.start_byte()..name.end_byte();
+                    let local = bind_here(st, &leaf, range.clone());
+                    push_use_edge(
+                        st,
+                        ImportEdge {
+                            specifier: spec,
+                            name: String::new(),
+                            name_range: range,
+                            local: Some(local),
+                            reexport,
+                            star: false,
+                            exported: reexport.then_some(leaf),
+                        },
+                    );
                 }
             }
         }
         "identifier" | "type_identifier" => {
-            bind_imported(st, text(st.contents, node), node.start_byte()..node.end_byte());
+            // Bare leaf inside a group prefix: `use a::{b}` — b's
+            // specifier is the accumulated prefix.
+            let name_text = text(st.contents, node).to_string();
+            let range = node.start_byte()..node.end_byte();
+            let local = bind_imported(st, &name_text, range.clone());
+            push_use_edge(
+                st,
+                ImportEdge {
+                    specifier: prefix.join("::"),
+                    name: name_text,
+                    name_range: range,
+                    local: Some(local),
+                    reexport,
+                    star: false,
+                    exported: None,
+                },
+            );
         }
         _ => {}
     }
@@ -809,25 +1052,48 @@ fn prescan_use_arg(node: Node, st: &mut State) {
 
 // ---------- bindings / refs / macros ----------
 
-fn bind_here(st: &mut State, name: &str, range: Range<usize>) {
-    bind_expansion(st, name, range, None);
+fn bind_here(st: &mut State, name: &str, range: Range<usize>) -> usize {
+    bind_expansion(st, name, range, None)
 }
 
-fn bind_expansion(st: &mut State, name: &str, range: Range<usize>, expansion: Option<Expansion>) {
+fn bind_expansion(
+    st: &mut State,
+    name: &str,
+    range: Range<usize>,
+    expansion: Option<Expansion>,
+) -> usize {
     let binding_idx = st.analysis.bindings.len();
+    let scope = cur_scope(st);
+    let module_level =
+        st.arena[scope].kind == ScopeKind::Module && st.arena[scope].parent.is_none();
     st.analysis.bindings.push(BindingSite {
         name: range,
         text: name.to_string(),
         expansion,
+        module_level,
+        is_mod: false,
     });
-    st.binding_scope.push(cur_scope(st));
+    st.binding_scope.push(scope);
     st.binding_inner.push(None);
-    let scope = cur_scope(st);
     st.arena[scope].bindings.insert(name.to_string(), binding_idx);
+    binding_idx
 }
 
-fn bind_imported(st: &mut State, name: &str, range: Range<usize>) {
-    bind_expansion(st, name, range, Some(Expansion::ImportAlias));
+fn bind_imported(st: &mut State, name: &str, range: Range<usize>) -> usize {
+    bind_expansion(st, name, range, Some(Expansion::ImportAlias))
+}
+
+/// Push an import edge; module-object edges (`use a::b`) register their
+/// local binding so `b::x` paths can be tagged as module attributes.
+fn push_use_edge(st: &mut State, edge: ImportEdge) {
+    let idx = st.analysis.imports.len();
+    if edge.name.is_empty() && !edge.star
+        && let Some(l) = edge.local
+        && l != usize::MAX
+    {
+        st.module_bindings.insert(l, idx);
+    }
+    st.analysis.imports.push(edge);
 }
 
 fn push_ref(
@@ -842,6 +1108,7 @@ fn push_ref(
         target,
         expansion,
         remote,
+        module_attr: None,
     });
 }
 

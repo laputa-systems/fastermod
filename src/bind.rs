@@ -36,6 +36,59 @@ pub(crate) struct BindingSite {
     pub text: String,
     /// Extra rewrite needed when the declaration doubles as another name.
     pub expansion: Option<Expansion>,
+    /// `true` for bindings introduced at module top level — the only
+    /// bindings another file can name through an import.
+    pub module_level: bool,
+    /// `true` for `mod name;`/`mod name {}` declarations — renaming one
+    /// requires renaming the module file, which is out of scope.
+    pub is_mod: bool,
+}
+
+/// An import edge: this file refers to `name` inside the module denoted by
+/// `specifier`. `name_range` is the token carrying the imported spelling
+/// (for unaliased imports it coincides with the local binding's name).
+/// `local` is the binding index the edge creates, when it creates one.
+/// `star` marks `import *`/`export *`/glob `use` — opaque membership.
+#[derive(Clone, Debug)]
+pub(crate) struct ImportEdge {
+    /// Raw specifier text (`./mod`, `pkg.sub`, `crate::a::b`).
+    pub specifier: String,
+    /// Imported symbol name; empty for module-object binds (`import m`).
+    pub name: String,
+    /// Byte range of the token spelling `name` (or the local token for
+    /// default imports, where no imported-name token exists).
+    pub name_range: Range<usize>,
+    /// Local binding created by this edge, if any.
+    pub local: Option<usize>,
+    /// `true` when the edge re-exports (`pub use`, `export ... from`).
+    pub reexport: bool,
+    /// `true` for wildcard edges (`*`, `use a::*`, dynamic `import()`).
+    pub star: bool,
+    /// For re-export edges: the spelling this module exports, when it
+    /// differs from the module-side `name` (`export { x as y } from`,
+    /// `pub use a::x as y`, `export * as ns from`). `None` = same as
+    /// `name` (or not a re-export).
+    pub exported: Option<String>,
+}
+
+/// An export alias declared in this module without a module specifier:
+/// `export { local as exported }`, `export default <local>`.
+#[derive(Clone, Debug)]
+pub(crate) struct ExportName {
+    /// The spelling importers use.
+    pub exported: String,
+    /// Local binding the export refers to, when it names one.
+    pub local: Option<usize>,
+}
+
+/// A `mod name;` declaration whose body lives in another file. The
+/// workspace layer resolves `name` to a sibling source file.
+#[derive(Clone, Debug)]
+pub(crate) struct ModDecl {
+    /// The declared module name.
+    pub name: String,
+    /// Byte range of the name token (for diagnostics/anchors).
+    pub name_range: Range<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -51,12 +104,24 @@ pub(crate) struct RefSite {
     /// lexical local binding, so unresolved remote refs do not block a
     /// rename — but resolved ones still participate in edits.
     pub remote: bool,
+    /// `Some(i)` when this occurrence is `module_attr` spelled through a
+    /// module-object binding listed in `Analysis::imports[i]` — e.g.
+    /// `m.foo` where `m` is `import m` / `import * as m` / `use m`. The
+    /// workspace layer resolves the attribute against the target module.
+    pub module_attr: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Analysis {
     pub bindings: Vec<BindingSite>,
     pub refs: Vec<RefSite>,
+    /// Import edges discovered in this file (named, aliased, wildcard,
+    /// re-export and module-object forms).
+    pub imports: Vec<ImportEdge>,
+    /// Local export aliases (`export { x as y }`, `export default`).
+    pub exports: Vec<ExportName>,
+    /// `mod name;` declarations pending cross-file resolution.
+    pub mod_decls: Vec<ModDecl>,
     /// `true` when the analyzer's unresolved set is provably complete
     /// (oxc resolves every identifier reference it models, so an
     /// unresolved occurrence can never refer to the selected binding).
@@ -73,7 +138,10 @@ impl Analysis {
         self.refs
             .iter()
             .filter(|r| {
-                r.target.is_none() && !r.remote && &contents[r.name.clone()] == name
+                r.target.is_none()
+                    && !r.remote
+                    && r.module_attr.is_none()
+                    && &contents[r.name.clone()] == name
             })
             .map(|r| r.name.clone())
             .collect()
