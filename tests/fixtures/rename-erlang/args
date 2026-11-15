@@ -1,0 +1,7 @@
+--rename
+helper
+renamed
+--at
+t.erl:4:1
+--apply
+{ROOT}
