@@ -22,6 +22,7 @@ use std::env;
 use std::fmt;
 use std::fs;
 use std::fs::read_to_string;
+use std::io::IsTerminal;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
@@ -57,6 +58,48 @@ use crate::terminal::Color;
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = ::std::result::Result<T, Error>;
 
+/// Process exit carrying the frozen exit-code contract (docs/refactor/cli.md).
+#[derive(Debug)]
+struct Failure {
+    code: i32,
+    message: String,
+}
+
+impl Failure {
+    fn usage(message: impl Into<String>) -> Failure {
+        Failure {
+            code: 2,
+            message: message.into(),
+        }
+    }
+
+    fn analysis(message: impl Into<String>) -> Failure {
+        Failure {
+            code: 3,
+            message: message.into(),
+        }
+    }
+
+    fn io(message: impl Into<String>) -> Failure {
+        Failure {
+            code: 4,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for Failure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Failure {}
+
+fn operational<T>(result: Result<T>) -> std::result::Result<T, Failure> {
+    result.map_err(|e| Failure::io(e.to_string()))
+}
+
 fn error_with_context(msg: impl std::fmt::Display, e: impl std::fmt::Display) -> Error {
     format!("{msg}: {e}").into()
 }
@@ -89,7 +132,37 @@ enum DiffResult<'a> {
     Right(&'a str),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Text,
+    Ident,
+    Rename,
+    Rewrite,
+    Rules,
+    ApplyPlan,
+    Languages,
+}
+
+impl Mode {
+    fn name(self) -> &'static str {
+        match self {
+            Mode::Text => "text",
+            Mode::Ident => "ident",
+            Mode::Rename => "rename",
+            Mode::Rewrite => "rewrite",
+            Mode::Rules => "rules",
+            Mode::ApplyPlan => "apply-plan",
+            Mode::Languages => "languages",
+        }
+    }
+
+    fn is_semantic(self) -> bool {
+        !matches!(self, Mode::Text)
+    }
+}
+
 struct Args {
+    mode: Mode,
     multiline: bool,
     dir: Vec<String>,
     file_or_dir: Vec<String>,
@@ -101,6 +174,15 @@ struct Args {
     no_ignore: bool,
     iglob: Option<Vec<String>>,
     accept_all: bool,
+    apply: bool,
+    dry_run: bool,
+    check: bool,
+    json: bool,
+    plan: Option<String>,
+    apply_plan: Option<String>,
+    rules_file: Option<String>,
+    at_anchor: Option<String>,
+    langs: Vec<String>,
     print_changed_files: bool,
     fixed_strings: bool,
     match_regex: String,
@@ -182,28 +264,54 @@ A tool to assist you with large-scale codebase refactors that can be
 partially automated but still require human oversight and occasional
 intervention.
 
-Usage: fastermod [OPTIONS] <REGEX> <SUBST> [FILE_OR_DIR]...
+Usage: fastermod [OPTIONS] <OLD> <NEW> [PATH...]
+       fastermod --rules <RULES_FILE> [PATH...]
+       fastermod --apply-plan <PLAN_FILE>
+       fastermod --languages [--json]
+
+Modes (mutually exclusive):
+      --ident               Edit every matching identifier token (syntactic,
+                           not binding-aware)
+      --rename              Rename one resolved binding and its references
+      --rewrite             Structural pattern rewrite (see --lang)
+      --rules <FILE>        Declarative migration rules (data only)
+      --apply-plan <FILE>   Apply a saved, versioned plan
+      --languages           Print the capability matrix
 
 Arguments:
-  <REGEX>          Regular expression to match.
-  <SUBST>          Substitution to replace with.
-  <FILE_OR_DIR>    Paths whose descendent files are to be explored.
+  <OLD>            Pattern to match: regex in text mode, identifier name in
+                   --ident/--rename, AST pattern in --rewrite.
+  <NEW>            Replacement: substitution template, new name, or AST
+                   replacement.
+  <PATH>...        Paths whose descendent files are to be explored.
 
 Options:
   -m, --multiline            Have regex work over multiple lines (i.e., have dot match newlines)
   -d, --dir <DIR>            The path whose descendent files are to be explored
   -i, --ignore-case          Perform case-insensitive search
-  -S, --smartcase            Match without regard to case when REGEX has no uppercase letters. Adapt SUBST casing.
+  -S, --smartcase            Match without regard to case when OLD has no uppercase letters. Adapt NEW casing.
   -e, --extensions <EXT>     A comma-delimited list of file extensions to process
   -g, --glob <GLOB>          A space-delimited list of globs to process
       --hidden              Search hidden files
   -u, --no-ignore           Also search ignored files
       --iglob <IGLOB>       A space-delimited list of case-insensitive globs to process
-      --accept-all          Automatically accept all changes (use with caution)
-      --print-changed-files Print the paths of changed files. (Recommended to be combined with --accept-all)
-  -F, --fixed-strings        Treat REGEX as a literal string. Avoids the need to escape regex metacharacters
+      --at <ANCHOR>         Select the rename target: FILE:LINE:COL (1-based line,
+                           1-based UTF-8 byte column). --rename only.
+      --lang <LANG>         Force a language/grammar (repeatable). --rewrite/--rules.
+      --apply               Write accepted changes without review
+      --accept-all          Same as --apply (legacy spelling)
+      --dry-run             Preview changes; never write
+      --check               Exit 1 when changes are pending; never write
+      --json                Machine-readable result on stdout
+      --plan <FILE>         Preview and save a versioned plan (no simultaneous apply)
+      --print-changed-files Print the paths of changed files
+  -F, --fixed-strings        Treat OLD as a literal string. Avoids the need to escape regex metacharacters
   -h, --help                Print help
-  -V, --version             Print version"
+  -V, --version             Print version
+
+Without --apply/--accept-all on a non-terminal stdin, fastermod previews
+changes and exits without writing. See docs/refactor/cli.md for the frozen
+mode and exit-code contract."
 }
 
 fn print_help_and_exit() {
@@ -221,7 +329,15 @@ fn parse_args() -> Args {
     }
 }
 
+fn set_mode(slot: &mut Option<Mode>, mode: Mode) -> Result<()> {
+    if slot.replace(mode).is_some() {
+        return Err("conflicting mode flags: only one of --ident, --rename, --rewrite, --rules, --apply-plan, --languages may be used".into());
+    }
+    Ok(())
+}
+
 fn parse_args_inner() -> Result<Args> {
+    let mut mode_slot = None;
     let mut multiline = false;
     let mut dir = Vec::new();
     let mut ignore_case = false;
@@ -234,6 +350,15 @@ fn parse_args_inner() -> Result<Args> {
     let mut has_iglob = false;
     let mut iglob = Vec::new();
     let mut accept_all = false;
+    let mut apply = false;
+    let mut dry_run = false;
+    let mut check = false;
+    let mut json = false;
+    let mut plan = None;
+    let mut apply_plan = None;
+    let mut rules_file = None;
+    let mut at_anchor = None;
+    let mut langs = Vec::new();
     let mut print_changed_files = false;
     let mut fixed_strings = false;
     let mut positionals = Vec::new();
@@ -246,6 +371,25 @@ fn parse_args_inner() -> Result<Args> {
                 println!("fastermod {}", env!("CARGO_PKG_VERSION"));
                 exit(0);
             }
+            Long("ident") => set_mode(&mut mode_slot, Mode::Ident)?,
+            Long("rename") => set_mode(&mut mode_slot, Mode::Rename)?,
+            Long("rewrite") => set_mode(&mut mode_slot, Mode::Rewrite)?,
+            Long("rules") => {
+                set_mode(&mut mode_slot, Mode::Rules)?;
+                rules_file = Some(parser.value()?.to_string_lossy().into_owned());
+            }
+            Long("apply-plan") => {
+                set_mode(&mut mode_slot, Mode::ApplyPlan)?;
+                apply_plan = Some(parser.value()?.to_string_lossy().into_owned());
+            }
+            Long("languages") => set_mode(&mut mode_slot, Mode::Languages)?,
+            Long("at") => at_anchor = Some(parser.value()?.to_string_lossy().into_owned()),
+            Long("lang") => langs.push(parser.value()?.to_string_lossy().into_owned()),
+            Long("apply") => apply = true,
+            Long("dry-run") => dry_run = true,
+            Long("check") => check = true,
+            Long("json") => json = true,
+            Long("plan") => plan = Some(parser.value()?.to_string_lossy().into_owned()),
             Short('m') | Long("multiline") => multiline = true,
             Short('d') | Long("dir") => dir.push(parser.value()?.to_string_lossy().into_owned()),
             Short('i') | Long("ignore-case") => ignore_case = true,
@@ -276,14 +420,21 @@ fn parse_args_inner() -> Result<Args> {
             _ => return Err(format!("Unrecognized argument: {:?}", arg).into()),
         }
     }
+    let mode = mode_slot.unwrap_or(Mode::Text);
     let mut positionals = positionals.into_iter();
-    let match_regex = positionals
-        .next()
-        .ok_or("Missing required argument <REGEX>.\nUsage: fastermod [OPTIONS] <REGEX> <SUBST> [FILE_OR_DIR]...")?;
-    let subst = positionals
-        .next()
-        .ok_or("Missing required argument <SUBST>.\nUsage: fastermod [OPTIONS] <REGEX> <SUBST> [FILE_OR_DIR]...")?;
-    let file_or_dir = positionals.collect();
+    let (match_regex, subst) = match mode {
+        Mode::Text | Mode::Ident | Mode::Rename | Mode::Rewrite => {
+            let old = positionals.next().ok_or(
+                "Missing required argument <OLD>.\nUsage: fastermod [OPTIONS] <OLD> <NEW> [PATH...]",
+            )?;
+            let new = positionals.next().ok_or(
+                "Missing required argument <NEW>.\nUsage: fastermod [OPTIONS] <OLD> <NEW> [PATH...]",
+            )?;
+            (old, new)
+        }
+        Mode::Rules | Mode::ApplyPlan | Mode::Languages => (String::new(), String::new()),
+    };
+    let file_or_dir: Vec<String> = positionals.collect();
     ensure!(
         extensions.is_none() || (glob.is_empty() && iglob.is_empty()),
         "cannot use --extensions with --glob or --iglob"
@@ -294,7 +445,54 @@ fn parse_args_inner() -> Result<Args> {
     );
     let glob = if has_glob { Some(glob) } else { None };
     let iglob = if has_iglob { Some(iglob) } else { None };
+
+    ensure!(
+        !(mode.is_semantic() && (multiline || ignore_case || smart_case || fixed_strings)),
+        format!("regex options (-m, -i, -S, -F) are not meaningful in --{} mode", mode.name())
+    );
+    ensure!(
+        at_anchor.is_none() || mode == Mode::Rename,
+        "--at is only valid with --rename"
+    );
+    ensure!(
+        langs.is_empty() || matches!(mode, Mode::Rewrite | Mode::Rules),
+        "--lang is only valid with --rewrite or --rules"
+    );
+    ensure!(
+        plan.is_none() || !matches!(mode, Mode::ApplyPlan | Mode::Languages),
+        "--plan cannot be combined with --apply-plan or --languages"
+    );
+    ensure!(
+        !(apply || accept_all) || plan.is_none(),
+        "--plan cannot be combined with --apply or --accept-all"
+    );
+    ensure!(
+        !check || !(apply || accept_all || plan.is_some()),
+        "--check cannot be combined with --apply, --accept-all, or --plan"
+    );
+    ensure!(
+        !(apply || accept_all) || !dry_run,
+        "--apply/--accept-all cannot be combined with --dry-run"
+    );
+    ensure!(
+        !(dry_run || check || plan.is_some())
+            || matches!(mode, Mode::Text | Mode::Ident | Mode::Rename | Mode::Rewrite | Mode::Rules),
+        "--dry-run, --check and --plan require a content mode"
+    );
+    ensure!(
+        !json || !matches!(mode, Mode::ApplyPlan),
+        "--json cannot be combined with --apply-plan"
+    );
+    ensure!(
+        !matches!(mode, Mode::ApplyPlan | Mode::Languages) || file_or_dir.is_empty(),
+        format!("--{} takes no path arguments", mode.name())
+    );
+    ensure!(
+        rules_file.is_some() || mode != Mode::Rules,
+        "--rules requires a rules file"
+    );
     Ok(Args {
+        mode,
         multiline,
         dir,
         file_or_dir,
@@ -306,6 +504,15 @@ fn parse_args_inner() -> Result<Args> {
         no_ignore,
         iglob,
         accept_all,
+        apply,
+        dry_run,
+        check,
+        json,
+        plan,
+        apply_plan,
+        rules_file,
+        at_anchor,
+        langs,
         print_changed_files,
         fixed_strings,
         match_regex,
@@ -941,18 +1148,27 @@ impl Fastermod {
     }
 
     fn print_diff<'a>(&mut self, diffs: &[DiffResult<'a>]) {
+        let color = std::io::stdout().is_terminal();
         for diff in diffs {
             match diff {
                 DiffResult::Left(l) => {
-                    terminal::fg(Color::Red);
+                    if color {
+                        terminal::fg(Color::Red);
+                    }
                     println!("- {}", l);
-                    terminal::reset();
+                    if color {
+                        terminal::reset();
+                    }
                 }
                 DiffResult::Both(l, _) => println!("  {}", l),
                 DiffResult::Right(r) => {
-                    terminal::fg(Color::Green);
+                    if color {
+                        terminal::fg(Color::Green);
+                    }
                     println!("+ {}", r);
-                    terminal::reset();
+                    if color {
+                        terminal::reset();
+                    }
                 }
             }
         }
@@ -1169,8 +1385,292 @@ fn remember_first_error(slot: &Mutex<Option<Error>>, error: Error) {
     }
 }
 
-fn fastermod() -> Result<()> {
+/// A file whose contents matched the prefilter, plus its full text.
+#[derive(Clone)]
+struct SourceFile {
+    path: PathBuf,
+    contents: String,
+}
+
+/// Walk `dirs` and return every regular file whose contents match `matcher`.
+/// Mirrors the discovery rules used by the apply paths (hidden/ignore/globs).
+fn matching_files(
+    dirs: Vec<&str>,
+    file_set: Option<FileSet>,
+    hidden: bool,
+    no_ignore: bool,
+    matcher: &RegexMatcher,
+) -> Result<Vec<SourceFile>> {
+    let walk = walk_builder_with_file_set(dirs, file_set)?
+        .hidden(!hidden)
+        .parents(!no_ignore)
+        .ignore(!no_ignore)
+        .git_ignore(!no_ignore)
+        .git_global(!no_ignore)
+        .git_exclude(!no_ignore)
+        .threads(min(12, available_worker_threads()))
+        .build_parallel();
+    let matcher = matcher.clone();
+    let files = Arc::new(Mutex::new(Vec::new()));
+    let file_error = Arc::new(Mutex::new(None));
+    let files_inner = files.clone();
+    let file_error_inner = file_error.clone();
+    walk.run(move || {
+        let mut searcher = make_searcher();
+        let matcher = matcher.clone();
+        let files = files_inner.clone();
+        let file_error = file_error_inner.clone();
+        Box::new(move |result| {
+            let dirent = match result {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("Warning: {}", e);
+                    remember_first_error(&file_error, e.into());
+                    return WalkState::Continue;
+                }
+            };
+            if let Some(file_type) = dirent.file_type()
+                && file_type.is_file()
+            {
+                let path = dirent.path();
+                if looks_like_code(path)
+                    && let Some(contents) = file_contents_if_matches(&mut searcher, &matcher, path)
+                {
+                    files.lock().unwrap().push(SourceFile {
+                        path: path.to_path_buf(),
+                        contents,
+                    });
+                }
+            }
+            WalkState::Continue
+        })
+    });
+    if let Some(error) = file_error.lock().unwrap().take() {
+        return Err(error);
+    }
+    let mut files = files.lock().unwrap().clone();
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+fn json_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn json_string(text: &str) -> String {
+    format!("\"{}\"", json_escape(text))
+}
+
+/// One regex match inside a source file, for JSON edit records.
+struct TextEdit {
+    path: PathBuf,
+    byte_start: usize,
+    byte_end: usize,
+    line: usize,
+    column: usize,
+    excerpt: String,
+}
+
+fn text_edits(
+    regex: &Regex,
+    file: &SourceFile,
+) -> Vec<TextEdit> {
+    regex
+        .captures_iter(&file.contents)
+        .map(|captures| {
+            let mat = captures.get(0).unwrap();
+            let (line0, col0) = index_to_row_col(&file.contents, mat.start());
+            let line_start = file.contents[..mat.start()].rfind('\n').map_or(0, |i| i + 1);
+            let line_end = file.contents[mat.start()..]
+                .find('\n')
+                .map_or(file.contents.len(), |i| mat.start() + i);
+            TextEdit {
+                path: file.path.clone(),
+                byte_start: mat.start(),
+                byte_end: mat.end(),
+                line: line0 + 1,
+                column: col0 + 1,
+                excerpt: file.contents[line_start..line_end].to_string(),
+            }
+        })
+        .collect()
+}
+
+fn text_json_report(
+    mode: Mode,
+    applied: bool,
+    roots: &[String],
+    files_scanned: usize,
+    files_edited: usize,
+    edits: &[TextEdit],
+) -> String {
+    let mut out = String::new();
+    out.push_str("{\"schema\":1,\"mode\":");
+    out.push_str(json_string(mode.name()).as_str());
+    out.push_str(&format!(",\"applied\":{applied}"));
+    out.push_str(",\"coverage\":{\"roots\":[");
+    for (i, root) in roots.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&json_string(root));
+    }
+    out.push_str(&format!(
+        "],\"files_scanned\":{files_scanned},\"files_edited\":{files_edited},\"files_skipped\":[],\"unresolved\":[]}}"
+    ));
+    out.push_str(",\"edits\":[");
+    for (i, edit) in edits.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push('{');
+        out.push_str("\"path\":");
+        out.push_str(&json_string(&edit.path.to_string_lossy()));
+        out.push_str(&format!(
+            ",\"byte_start\":{},\"byte_end\":{},\"anchor\":{{\"line\":{},\"column\":{},\"excerpt\":{}}},\"kind\":\"text\"}}",
+            edit.byte_start,
+            edit.byte_end,
+            edit.line,
+            edit.column,
+            json_string(&edit.excerpt)
+        ));
+    }
+    out.push_str("],\"diagnostics\":[]}\n");
+    out
+}
+
+fn languages_report(json: bool) -> String {
+    if json {
+        return "{\"schema\":1,\"modes\":{\"text\":{\"status\":\"available\"},\"ident\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-6\"},\"rename\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-7\"},\"rewrite\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-6\"},\"rules\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"},\"apply-plan\":{\"status\":\"unavailable\",\"ticket\":\"REFAC-12\"}},\"languages\":[]}\n".to_string();
+    }
+    let mut out = String::new();
+    out.push_str(&format!("fastermod {} capability report\n", env!("CARGO_PKG_VERSION")));
+    out.push_str("modes:\n");
+    out.push_str("  text       available (regex/literal substitution)\n");
+    out.push_str("  ident      unavailable (REFAC-6)\n");
+    out.push_str("  rename     unavailable (REFAC-7/8)\n");
+    out.push_str("  rewrite    unavailable (REFAC-6)\n");
+    out.push_str("  rules      unavailable (REFAC-12)\n");
+    out.push_str("  apply-plan unavailable (REFAC-12)\n");
+    out.push_str("languages: no syntax-aware adapters yet; the typed capability\n");
+    out.push_str("registry lands with REFAC-6. Parser availability is not rename\n");
+    out.push_str("support.\n");
+    out
+}
+
+/// Preview (or report on) text-mode edits without writing, unless `apply`.
+/// Returns the process exit code.
+#[allow(clippy::too_many_arguments)]
+fn run_text_pipeline(
+    regex: &Regex,
+    matcher: &RegexMatcher,
+    substitution: &Substitution,
+    dirs: Vec<&str>,
+    file_set: Option<FileSet>,
+    hidden: bool,
+    no_ignore: bool,
+    print_changed_files: bool,
+    apply: bool,
+    check: bool,
+    json: bool,
+    roots: &[String],
+) -> std::result::Result<i32, Failure> {
+    let files = operational(matching_files(dirs, file_set, hidden, no_ignore, matcher))?;
+    let files_scanned = files.len();
+
+    // Compute the full edit set up front so review, check, JSON and apply all
+    // describe the same operation.
+    let mut changes: Vec<(PathBuf, String, String)> = Vec::new();
+    let mut all_edits: Vec<TextEdit> = Vec::new();
+    for file in &files {
+        if let Cow::Owned(new_contents) = substitution.replace_all(regex, &file.contents) {
+            if json || check {
+                all_edits.extend(text_edits(regex, file));
+            }
+            changes.push((file.path.clone(), file.contents.clone(), new_contents));
+        }
+    }
+    let files_edited = changes.len();
+
+    if json {
+        if apply {
+            let mut fm = Fastermod::new(true, hidden, no_ignore, false);
+            for (path, _, new_contents) in &changes {
+                operational(fm.save(path, new_contents))?;
+            }
+            print!(
+                "{}",
+                text_json_report(Mode::Text, true, roots, files_scanned, files_edited, &all_edits)
+            );
+            return Ok(0);
+        }
+        print!(
+            "{}",
+            text_json_report(Mode::Text, false, roots, files_scanned, files_edited, &all_edits)
+        );
+        return Ok(if check && files_edited > 0 { 1 } else { 0 });
+    }
+
+    if check {
+        for (path, _, _) in &changes {
+            println!("{}", path.display());
+        }
+        return Ok(if files_edited > 0 { 1 } else { 0 });
+    }
+
+    // Preview: show diffs, never write.
+    let mut fm = Fastermod::new(false, hidden, no_ignore, print_changed_files);
+    for (path, old_contents, new_contents) in &changes {
+        let diffs = fm.diffs_to_print(old_contents, new_contents);
+        if diffs.is_empty() {
+            continue;
+        }
+        let (start_line, end_line) = diff_line_span(&compute_diff(old_contents, new_contents));
+        if start_line == end_line {
+            println!("{}:{}", path.display(), start_line);
+        } else {
+            println!("{}:{}-{}", path.display(), start_line, end_line);
+        }
+        fm.print_diff(&diffs);
+        if print_changed_files {
+            fm.record_change(path.clone());
+        }
+    }
+    fm.print_changed_files_if_needed();
+    Ok(0)
+}
+
+/// First and last changed 1-based line numbers described by a line diff.
+fn diff_line_span(diff: &HistogramDiff<'_>) -> (usize, usize) {
+    let mut start = usize::MAX;
+    let mut end = 0;
+    for hunk in diff.hunks() {
+        let hunk_start = min(hunk.before.start, hunk.after.start);
+        let hunk_end = max(hunk.before.end, hunk.after.end);
+        start = min(start, hunk_start);
+        end = max(end, hunk_end);
+    }
+    if start == usize::MAX {
+        return (1, 1);
+    }
+    (start + 1, max(end, start + 1))
+}
+
+fn fastermod() -> std::result::Result<i32, Failure> {
     let Args {
+        mode,
         multiline,
         dir,
         file_or_dir,
@@ -1182,11 +1682,46 @@ fn fastermod() -> Result<()> {
         no_ignore,
         iglob,
         accept_all,
+        apply,
+        dry_run,
+        check,
+        json,
+        plan,
+        apply_plan,
+        rules_file,
+        at_anchor,
+        langs,
         print_changed_files,
         fixed_strings,
         match_regex,
         subst,
     } = parse_args();
+
+    if mode == Mode::Languages {
+        print!("{}", languages_report(json));
+        return Ok(0);
+    }
+    for unimplemented in [
+        (mode == Mode::Ident, "--ident"),
+        (mode == Mode::Rename, "--rename"),
+        (mode == Mode::Rewrite, "--rewrite"),
+        (mode == Mode::Rules, "--rules"),
+        (mode == Mode::ApplyPlan, "--apply-plan"),
+    ] {
+        if unimplemented.0 {
+            return Err(Failure::analysis(format!(
+                "{} is not yet implemented in this build",
+                unimplemented.1
+            )));
+        }
+    }
+    if plan.is_some() {
+        return Err(Failure::analysis(
+            "--plan is not yet implemented in this build",
+        ));
+    }
+    let _ = (apply_plan, rules_file, at_anchor, langs);
+
     let dirs = {
         let mut dirs: Vec<_> = dir
             .iter()
@@ -1198,6 +1733,7 @@ fn fastermod() -> Result<()> {
         }
         dirs
     };
+    let roots: Vec<String> = dirs.iter().map(|d| d.to_string()).collect();
     let file_set = if let Some(files) = extensions {
         Some(FileSet::Extensions(files))
     } else if let Some(files) = glob {
@@ -1226,8 +1762,16 @@ fn fastermod() -> Result<()> {
         .multi_line(true)
         .dot_matches_new_line(multiline)
         .build()
-        .map_err(|e| error_with_context(format!("Unable to make regex from {}", regex_str), e))?;
+        .map_err(|e| {
+            Failure::usage(format!("Unable to make regex from {}: {}", regex_str, e))
+        })?;
+    let stdin_tty = std::io::stdin().is_terminal();
     if regex.is_match("") {
+        if !stdin_tty {
+            return Err(Failure::usage(
+                "regex matches the empty string; refusing to continue",
+            ));
+        }
         match prompt_reply_stderr(&format!(
             "Warning: your regex {:?} matches the empty string. This is probably
 not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
@@ -1235,10 +1779,12 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
         )) {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Err("refusing to continue: regex matches the empty string".into());
+                return Err(Failure::usage(
+                    "refusing to continue: regex matches the empty string",
+                ));
             }
             Err(error) => {
-                return Err(error_with_context("Unable to read user input", error));
+                return Err(Failure::io(format!("Unable to read user input: {error}")));
             }
         }
     }
@@ -1246,10 +1792,33 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
         .case_insensitive(case_insensitive)
         .multi_line(true)
         .dot_matches_new_line(multiline)
-        .build(&maybe_escaped_regex)?;
+        .build(&maybe_escaped_regex)
+        .map_err(|e| Failure::usage(format!("Unable to make regex from {}: {}", regex_str, e)))?;
 
-    if accept_all {
-        Fastermod::run_fast(
+    let apply = accept_all || apply;
+    let stdout_tty = std::io::stdout().is_terminal();
+    // Interactive per-match review needs a terminal on both sides and no
+    // explicit apply/dry-run/check/JSON request.
+    let interactive = !apply && !dry_run && !check && !json && stdin_tty && stdout_tty;
+
+    if interactive {
+        operational(
+            Fastermod::new(false, hidden, no_ignore, print_changed_files).run_interactive(
+                &regex,
+                &matcher,
+                &substitution,
+                dirs,
+                file_set,
+            ),
+        )?;
+        return Ok(0);
+    }
+
+    // Plain unattended apply keeps the parallel fast path. Preview, check,
+    // JSON and apply-with-JSON share the single-snapshot pipeline so the
+    // report describes exactly what was (or would be) written.
+    if apply && !json {
+        operational(Fastermod::run_fast(
             &regex,
             &matcher,
             &substitution,
@@ -1258,17 +1827,33 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
             hidden,
             no_ignore,
             print_changed_files,
-        )
-    } else {
-        Fastermod::new(accept_all, hidden, no_ignore, print_changed_files)
-            .run_interactive(&regex, &matcher, &substitution, dirs, file_set)
+        ))?;
+        return Ok(0);
     }
+
+    run_text_pipeline(
+        &regex,
+        &matcher,
+        &substitution,
+        dirs,
+        file_set,
+        hidden,
+        no_ignore,
+        print_changed_files,
+        apply,
+        check,
+        json,
+        &roots,
+    )
 }
 
 fn main() {
-    if let Err(e) = fastermod() {
-        eprint!("{:?}", e);
-        exit(1);
+    match fastermod() {
+        Ok(code) => exit(code),
+        Err(failure) => {
+            eprintln!("error: {}", failure.message);
+            exit(failure.code);
+        }
     }
 }
 
@@ -1793,7 +2378,13 @@ mod tests {
             ("c.txt", "foo"),
         ]);
         assert_fastermod(
-            ["foo", "bar", "--dir", dir.path().to_str().unwrap()],
+            [
+                "foo",
+                "bar",
+                "--accept-all",
+                "--dir",
+                dir.path().to_str().unwrap(),
+            ],
             Some("A\n"),
             None,
         );
@@ -1899,6 +2490,7 @@ mod tests {
                 "-F",
                 "something",
                 "$foo.bar",
+                "--accept-all",
                 "--dir",
                 dir.path().to_str().unwrap(),
             ],

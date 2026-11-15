@@ -156,16 +156,22 @@ fn run_case(case: &Case) -> Output {
     );
 
     if let Some(expected) = read_optional(&case.dir.join("expect-stdout")) {
+        let expected = String::from_utf8(expected)
+            .unwrap()
+            .replace("{ROOT}", root.to_str().unwrap());
         assert_eq!(
-            output.stdout,
+            String::from_utf8_lossy(&output.stdout),
             expected,
             "{}: stdout mismatch",
             case.name
         );
     }
     if let Some(expected) = read_optional(&case.dir.join("expect-stderr")) {
+        let expected = String::from_utf8(expected)
+            .unwrap()
+            .replace("{ROOT}", root.to_str().unwrap());
         assert_eq!(
-            output.stderr,
+            String::from_utf8_lossy(&output.stderr),
             expected,
             "{}: stderr mismatch",
             case.name

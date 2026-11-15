@@ -1,5 +1,5 @@
 Prefix: REFAC
-Next: 2
+Next: 3
 
 # Stateless polyglot refactoring campaign ledger
 
@@ -51,6 +51,13 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Prototype the campaign's mode flags and two alternatives using realistic transcripts. Prefer unchanged OLD NEW [PATH...] operands and explicit --ident/--rewrite/--rename modes. Resolve legacy regex/subcommand collisions, anchors, TTY/non-TTY defaults, apply/preview/plan, invalid flag combinations, exit codes and JSON schema. Decide autonomously, then stop redesign churn.
 - **Accept:** Golden help/transcript/parser tests, ordinary tasks with no config, no silent semantics change, no implicit non-TTY writes, exact ambiguity diagnostics. Document proposed versus implemented behavior honestly. Whole-operation review is required for semantic rename.
 - **Effort:** M
+- **Done:** Grammar frozen in `docs/refactor/cli.md` (mode flags chosen over
+  subcommands/`--mode`; rejected alternatives recorded). Implemented: all
+  mode flags, validation, exit codes 0-4, non-TTY preview, `--dry-run`,
+  `--check`, `--json` (schema v1), `--apply`, `--languages`, `--at`/`--lang`
+  parsing. Engine modes return exit 3 until REFAC-6+. Fixtures:
+  preview-non-tty, check-pending, check-clean, json-text, apply-json,
+  mode-conflict, at-requires-rename, ident-unimplemented, languages-json.
 
 ### REFAC-3 · P1 · Extract the shared engine and typed edit plans
 
