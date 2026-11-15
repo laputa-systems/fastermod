@@ -1,0 +1,7 @@
+--rename
+bump
+boost
+--at
+A.swift:3:8
+--apply
+{ROOT}

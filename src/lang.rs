@@ -175,10 +175,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Swift,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-swift)",
-        limitations: "",
-        fixtures: &["ident-swift", "rewrite-swift"],
+        limitations: "obj.m/obj.p on non-self receivers blocks member renames; closures, property wrappers, result builders and operators are only partially modeled",
+        fixtures: &["ident-swift", "rewrite-swift", "rename-swift"],
     },
     LangSpec {
         id: "php",
