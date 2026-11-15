@@ -131,10 +131,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Cpp,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-cpp)",
-        limitations: "preprocessor directives and template instantiations are matched syntactically only",
-        fixtures: &["ident-cpp", "rewrite-cpp"],
+        limitations: "preprocessor directives and template instantiations are matched syntactically only; member access on non-this receivers (o.m, p->x) blocks member renames; cross-file/header resolution is not modeled",
+        fixtures: &["ident-cpp", "rewrite-cpp", "rename-cpp"],
     },
     LangSpec {
         id: "java",
