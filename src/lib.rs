@@ -58,6 +58,7 @@ mod bind;
 mod bind_go;
 mod bind_csharp;
 mod bind_java;
+mod bind_kotlin;
 mod bind_js;
 mod bind_lua;
 mod bind_php;

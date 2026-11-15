@@ -1,0 +1,7 @@
+--rename
+bump
+boost
+--at
+A.kt:3:7
+--apply
+{ROOT}

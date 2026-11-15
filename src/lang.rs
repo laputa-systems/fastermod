@@ -164,10 +164,10 @@ pub(crate) const LANGUAGES: &[LangSpec] = &[
         lang: SupportLang::Kotlin,
         ident: true,
         rewrite: true,
-        binding: BindingSupport::None,
+        binding: BindingSupport::Local,
         license: "MIT (tree-sitter-kotlin)",
-        limitations: "",
-        fixtures: &["ident-kotlin", "rewrite-kotlin"],
+        limitations: "navigation a.b on non-this receivers blocks member renames; imports, extension functions, delegated properties and implicit `it` are not resolved",
+        fixtures: &["ident-kotlin", "rewrite-kotlin", "rename-kotlin"],
     },
     LangSpec {
         id: "swift",
