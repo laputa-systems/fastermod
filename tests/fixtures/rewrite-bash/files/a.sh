@@ -1,5 +1,7 @@
+#!/bin/sh
 helper() {
-  echo "$1"
+  echo "$@"
 }
-
-count=$(renamed 1)
+helper 1 2
+count=$(helper x)
+# helper(9) in comment

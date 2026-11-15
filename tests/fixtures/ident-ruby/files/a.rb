@@ -1,5 +1,9 @@
-def renamed(x)
-  x
+def helper(x)
+  x + 1
 end
 
-count = renamed(1)
+count = helper(1)
+# helper in comment
+s = "helper"
+puts count
+puts s

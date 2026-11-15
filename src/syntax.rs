@@ -122,7 +122,11 @@ pub(crate) fn run_ident(
         };
         let mut edits = Vec::new();
         for node in root.root().dfs() {
-            if lang::is_identifier_kind(node.kind().as_ref()) && node.text().as_ref() == old {
+            let kind = node.kind();
+            if (lang::is_identifier_kind(kind.as_ref())
+                || spec.ident_kinds.contains(&kind.as_ref()))
+                && node.text().as_ref() == old
+            {
                 let range = node.range();
                 edits.push(SpanEdit {
                     byte_start: range.start,

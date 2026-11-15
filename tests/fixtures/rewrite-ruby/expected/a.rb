@@ -2,4 +2,8 @@ def helper(x)
   x
 end
 
-count = renamed(1)
+a = renamed(1, 2)
+b = renamed(x)
+c = other(1)
+# helper(9) in comment
+puts a

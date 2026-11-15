@@ -1,5 +1,5 @@
 --rewrite
-helper($$$ARGS)
-renamed($$$ARGS)
+var $$V = helper($$$ARGS);
+var $$V = renamed($$$ARGS);
 --apply
 {ROOT}
