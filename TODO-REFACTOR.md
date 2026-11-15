@@ -264,6 +264,7 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Preserve baseline measurements, then benchmark whole-process text/identifier/AST/semantic/batch operations over pinned real repos. Separate phases, output work, OS-cache state, latency distribution and peak RSS. Compare only equivalent edit/identity sets. Optimize profiled bottlenecks with bounded parallelism and sound candidate pruning.
 - **Accept:** Correctness and capability coverage remain unchanged; no daemon/index/cache shortcut. Report measured deltas and tradeoffs rather than claiming regex-equivalent semantic costs. Old text behavior gets its own regression analysis. Features are not removed or made less accurate for a benchmark win.
 - **Effort:** L
+- **Progress:** baseline preserved (`benches/baseline.json` text-mode suite via rustybench + `make bench`); whole-process release-build numbers recorded in `docs/refactor/performance.md` (median-of-5, `/usr/bin/time -l`, repo corpus at pinned commit): `--ident` ~0.05s/10.6MB over src/, ~0.10s/11.2MB whole repo, text mode ~0.02s, `--languages` <0.01s. No optimization applied: no profiled bottleneck justifies parallelism while preserving deterministic single-pass plan ordering; cost is grammar parse + startup bound. Tradeoffs documented.
 
 ### REFAC-15 · P1 · Review the actual product and close truthfully
 
