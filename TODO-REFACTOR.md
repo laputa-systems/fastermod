@@ -214,6 +214,7 @@ copying them. All P1 capabilities/accuracy work precedes performance tuning.
 - **Work:** Split into language-sized child tickets while retaining this aggregate gate. For each, ship syntax edits, meaningful local binding renames, ordinary module/workspace resolution where applicable, and explicit difficult-construct boundaries. Reuse proven adapters/libraries, not generic identifier spelling masquerading as semantics.
 - **Accept:** Every named language has fixture-backed capability rows, useful positive semantic renames, shadowing/capture decoys, ordinary cross-file examples where applicable and explicit unsupported cases. Parser-only rows or refusal-only tests do not close the ticket. Native portability remains intact.
 - **Effort:** XL
+- **Progress:** syntax (`--ident`/`--rewrite`) + capability rows landed for all 13 languages (PowerShell has no bundled grammar — evidenced open). Semantic local rename landed for Go (`845b516`), Lua (`290d5c0`), Java (`90f1c65`) with shadowing fixtures. Remaining: C, C++, C#, Kotlin, Swift, PHP, Ruby, Dart, Bash analyzers; PowerShell grammar; cross-file resolution where applicable.
 
 ### REFAC-10 · P1 · Complete the remaining major-language inventory
 
