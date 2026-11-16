@@ -2,8 +2,8 @@
 
 This document is the contract for `fastermod`'s command line: operand
 shape, mode flags, validation, exit codes, and the JSON result schema.
-`--help` prints the same grammar; this file adds the rules help cannot
-carry.
+`-h` and `--help` print the mode and option reference with examples; this
+file adds the detailed rules. A bare invocation reports missing operands.
 
 ## Grammar
 

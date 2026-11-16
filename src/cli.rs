@@ -62,65 +62,91 @@ pub(crate) struct Args {
 }
 
 
-fn help_text() -> &'static str {
-    "fastermod is a fast partial replacement for codemod.
+struct OptionSpec {
+    long: &'static str,
+    short: Option<char>,
+    value: &'static str,
+    description: &'static str,
+}
 
-A tool to assist you with large-scale codebase refactors that can be
-partially automated but still require human oversight and occasional
-intervention.
+macro_rules! options {
+    ($(($long:literal, $short:expr, $value:literal, $description:literal)),* $(,)?) => {
+        const OPTIONS: &[OptionSpec] = &[$(OptionSpec {
+            long: $long, short: $short, value: $value, description: $description,
+        }),*];
+    };
+}
 
-Usage: fastermod [OPTIONS] <OLD> <NEW> [PATH...]
-       fastermod --rules <RULES_FILE> [PATH...]
-       fastermod --apply-plan <PLAN_FILE>
-       fastermod --languages [--json]
+options! {
+    ("ident", None, "", "Edit matching identifier tokens syntactically"),
+    ("rename", None, "", "Rename a resolved binding and its references"),
+    ("rewrite", None, "", "Rewrite structural patterns"),
+    ("rules", None, "<FILE>", "Run declarative migration rules"),
+    ("apply-plan", None, "<FILE>", "Apply a saved, versioned plan"),
+    ("languages", None, "", "Print the capability matrix"),
+    ("multiline", Some('m'), "", "Make regex dot match newlines"),
+    ("dir", Some('d'), "<DIR>", "Search this directory (repeatable; default: current directory)"),
+    ("ignore-case", Some('i'), "", "Search case-insensitively"),
+    ("smartcase", Some('S'), "", "Match case-insensitively when OLD has no uppercase; adapt NEW casing"),
+    ("extensions", Some('e'), "<EXT>", "Comma-delimited extensions (repeatable; conflicts with glob options)"),
+    ("glob", Some('g'), "<GLOB>...", "Space-delimited globs (conflicts with extensions and iglob)"),
+    ("hidden", None, "", "Search hidden files"),
+    ("no-ignore", Some('u'), "", "Also search ignored files"),
+    ("iglob", None, "<IGLOB>...", "Case-insensitive space-delimited globs (conflicts with extensions and glob)"),
+    ("at", None, "<ANCHOR>", "Rename target FILE:LINE:COL (1-based line and UTF-8 byte column)"),
+    ("lang", None, "<LANG>", "Force language for ident, rename, rewrite or rules (repeatable; default: detect)"),
+    ("apply", None, "", "Write accepted changes without review"),
+    ("accept-all", None, "", "Same as --apply (legacy spelling)"),
+    ("dry-run", None, "", "Preview changes without writing"),
+    ("check", None, "", "Exit 1 when changes are pending without writing"),
+    ("json", None, "", "Emit machine-readable results"),
+    ("plan", None, "<FILE>", "Preview and save a versioned plan"),
+    ("print-changed-files", None, "", "Print changed paths"),
+    ("fixed-strings", Some('F'), "", "Treat OLD as a literal string"),
+    ("help", Some('h'), "", "Print help"),
+    ("version", Some('V'), "", "Print version"),
+}
 
-Modes (mutually exclusive):
-      --ident               Edit every matching identifier token (syntactic,
-                           not binding-aware)
-      --rename              Rename one resolved binding and its references
-      --rewrite             Structural pattern rewrite (see --lang)
-      --rules <FILE>        Declarative migration rules (data only)
-      --apply-plan <FILE>   Apply a saved, versioned plan
-      --languages           Print the capability matrix
+struct ModeSpec {
+    usage: &'static str,
+    description: &'static str,
+    example: &'static str,
+}
 
-Arguments:
-  <OLD>            Pattern to match: regex in text mode, identifier name in
-                   --ident/--rename, AST pattern in --rewrite.
-  <NEW>            Replacement: substitution template, new name, or AST
-                   replacement.
-  <PATH>...        Paths whose descendent files are to be explored.
+const MODES: &[ModeSpec] = &[
+    ModeSpec { usage: "[OPTIONS] <OLD> <NEW> [PATH...]", description: "Text substitution (default)", example: "fastermod old new src/" },
+    ModeSpec { usage: "--ident [OPTIONS] <OLD> <NEW> [PATH...]", description: "Syntactic identifier replacement", example: "fastermod --ident old new src/" },
+    ModeSpec { usage: "--rename [OPTIONS] <OLD> <NEW> [PATH...]", description: "Binding-aware rename; --at selects a target", example: "fastermod --rename old new src/" },
+    ModeSpec { usage: "--rewrite [OPTIONS] <OLD> <NEW> [PATH...]", description: "Structural pattern rewrite; --lang selects a grammar", example: "fastermod --rewrite '$A + 0' '$A' src/" },
+    ModeSpec { usage: "--rules <FILE> [OPTIONS] [PATH...]", description: "Run rules from a TOML file", example: "fastermod --rules rules.toml src/" },
+    ModeSpec { usage: "--apply-plan <FILE> [OPTIONS]", description: "Revalidate and apply a saved plan", example: "fastermod --apply-plan plan.json" },
+    ModeSpec { usage: "--languages [--json]", description: "Show language capabilities", example: "fastermod --languages --json" },
+];
 
-Options:
-  -m, --multiline            Have regex work over multiple lines (i.e., have dot match newlines)
-  -d, --dir <DIR>            The path whose descendent files are to be explored
-  -i, --ignore-case          Perform case-insensitive search
-  -S, --smartcase            Match without regard to case when OLD has no uppercase letters. Adapt NEW casing.
-  -e, --extensions <EXT>     A comma-delimited list of file extensions to process
-  -g, --glob <GLOB>          A space-delimited list of globs to process
-      --hidden              Search hidden files
-  -u, --no-ignore           Also search ignored files
-      --iglob <IGLOB>       A space-delimited list of case-insensitive globs to process
-      --at <ANCHOR>         Select the rename target: FILE:LINE:COL (1-based line,
-                           1-based UTF-8 byte column). --rename only.
-      --lang <LANG>         Force a language/grammar (repeatable). --ident/--rename/--rewrite/--rules.
-      --apply               Write accepted changes without review
-      --accept-all          Same as --apply (legacy spelling)
-      --dry-run             Preview changes; never write
-      --check               Exit 1 when changes are pending; never write
-      --json                Machine-readable result on stdout
-      --plan <FILE>         Preview and save a versioned plan (no simultaneous apply)
-      --print-changed-files Print the paths of changed files
-  -F, --fixed-strings        Treat OLD as a literal string. Avoids the need to escape regex metacharacters
-  -h, --help                Print help
-  -V, --version             Print version
+const FOOTER: &str = "Maintained by Joshua Li: https://github.com/laputa-systems/fastermod\nBugs and features: TODO.md in that repository (follow its AGENTS.md), or its issue tracker.\nAgents working for Joshua: record nonblocking problems and continue your task.\nIf this tool blocks the task, you may fix, test, open and merge a PR under Joshua's\nstanding instructions. Release only when needed to deliver the verified fix.\nProcedure: https://github.com/joshuarli/usr/blob/main/dotfiles/base/.agents/instructions/owned-tools.md";
 
-Without --apply/--accept-all on a non-terminal stdin, fastermod previews
-changes and exits without writing. See docs/refactor/cli.md for the mode
-and exit-code contract."
+fn help_text() -> String {
+    use std::fmt::Write;
+    let mut text = format!("fastermod {}\n\nfastermod assists with large-scale substitutions and refactors.\n\nUsage and modes (mutually exclusive):\n", env!("CARGO_PKG_VERSION"));
+    for mode in MODES {
+        writeln!(text, "  fastermod {}\n      {}", mode.usage, mode.description).unwrap();
+    }
+    text.push_str("\nArguments:\n  <OLD>      Required pattern, identifier, or structural pattern\n  <NEW>      Required replacement, new name, or structural template\n  [PATH...]  Optional, repeated search roots (default: current directory)\n\nOptions:\n");
+    for option in OPTIONS {
+        let short = option.short.map_or("    ".to_string(), |c| format!("-{c}, "));
+        let value = if option.value.is_empty() { String::new() } else { format!(" {}", option.value) };
+        writeln!(text, "  {short}--{}{value}\n      {}", option.long, option.description).unwrap();
+    }
+    text.push_str("\nRegex options -m, -i, -S and -F apply only to text mode.\n--plan conflicts with apply; --check conflicts with apply and plan;\n--dry-run conflicts with apply. --json cannot be used with --apply-plan.\nWithout --apply/--accept-all on non-terminal stdin, changes are previewed.\nEDITOR selects the review editor (default: vim). See docs/refactor/cli.md.\n\nExamples:\n");
+    for mode in MODES {
+        writeln!(text, "  {}", mode.example).unwrap();
+    }
+    write!(text, "\n{FOOTER}\n").unwrap();
+    text
 }
 
 fn print_help_and_exit() {
-    print!("fastermod {}\n{}\n", env!("CARGO_PKG_VERSION"), help_text());
+    print!("{}", help_text());
     exit(0);
 }
 
@@ -142,6 +168,10 @@ fn set_mode(slot: &mut Option<Mode>, mode: Mode) -> Result<()> {
 }
 
 fn parse_args_inner() -> Result<Args> {
+    parse_with(lexopt::Parser::from_env())
+}
+
+fn parse_with(mut parser: lexopt::Parser) -> Result<Args> {
     let mut mode_slot = None;
     let mut multiline = false;
     let mut dir = Vec::new();
@@ -168,11 +198,15 @@ fn parse_args_inner() -> Result<Args> {
     let mut fixed_strings = false;
     let mut positionals = Vec::new();
 
-    let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
+        let arg = match arg {
+            Short(c) => OPTIONS.iter().find(|option| option.short == Some(c)).map_or(Short(c), |option| Long(option.long)),
+            Long(name) => OPTIONS.iter().find(|option| option.long == name).map_or(Long(name), |option| Long(option.long)),
+            value => value,
+        };
         match arg {
-            Short('h') | Long("help") => print_help_and_exit(),
-            Short('V') | Long("version") => {
+            Long("help") => print_help_and_exit(),
+            Long("version") => {
                 println!("fastermod {}", env!("CARGO_PKG_VERSION"));
                 exit(0);
             }
@@ -195,23 +229,23 @@ fn parse_args_inner() -> Result<Args> {
             Long("check") => check = true,
             Long("json") => json = true,
             Long("plan") => plan = Some(parser.value()?.to_string_lossy().into_owned()),
-            Short('m') | Long("multiline") => multiline = true,
-            Short('d') | Long("dir") => dir.push(parser.value()?.to_string_lossy().into_owned()),
-            Short('i') | Long("ignore-case") => ignore_case = true,
-            Short('S') | Long("smartcase") => smart_case = true,
-            Short('e') | Long("extensions") => {
+            Long("multiline") => multiline = true,
+            Long("dir") => dir.push(parser.value()?.to_string_lossy().into_owned()),
+            Long("ignore-case") => ignore_case = true,
+            Long("smartcase") => smart_case = true,
+            Long("extensions") => {
                 let value = parser.value()?.to_string_lossy().into_owned();
                 let mut exts: Vec<String> = value.split(',').map(str::to_string).collect();
                 extensions.get_or_insert_with(Vec::new).append(&mut exts);
             }
-            Short('g') | Long("glob") => {
+            Long("glob") => {
                 for value in parser.values()? {
                     has_glob = true;
                     glob.push(value.to_string_lossy().into_owned());
                 }
             }
             Long("hidden") => hidden = true,
-            Short('u') | Long("no-ignore") => no_ignore = true,
+            Long("no-ignore") => no_ignore = true,
             Long("iglob") => {
                 for value in parser.values()? {
                     has_iglob = true;
@@ -220,7 +254,7 @@ fn parse_args_inner() -> Result<Args> {
             }
             Long("accept-all") => accept_all = true,
             Long("print-changed-files") => print_changed_files = true,
-            Short('F') | Long("fixed-strings") => fixed_strings = true,
+            Long("fixed-strings") => fixed_strings = true,
             Value(value) => positionals.push(value.to_string_lossy().into_owned()),
             _ => return Err(format!("Unrecognized argument: {:?}", arg).into()),
         }
@@ -327,3 +361,39 @@ fn parse_args_inner() -> Result<Args> {
         match_regex,
         subst,
     })}
+
+#[cfg(test)]
+mod help_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn help_examples_parse_and_option_names_are_unique() {
+        let mut long = HashSet::new();
+        let mut short = HashSet::new();
+        for option in OPTIONS {
+            assert!(long.insert(option.long), "duplicate option {}", option.long);
+            if let Some(name) = option.short {
+                assert!(short.insert(name), "duplicate short option {name}");
+            }
+        }
+        for mode in MODES {
+            let mut words = Vec::new();
+            let mut word = String::new();
+            let mut quoted = false;
+            for c in mode.example.chars() {
+                match c {
+                    '\'' => quoted = !quoted,
+                    ' ' if !quoted => {
+                        if !word.is_empty() { words.push(std::mem::take(&mut word)); }
+                    }
+                    _ => word.push(c),
+                }
+            }
+            assert!(!quoted);
+            if !word.is_empty() { words.push(word); }
+            assert_eq!(words.remove(0), "fastermod");
+            assert!(parse_with(lexopt::Parser::from_args(words)).is_ok(), "{}", mode.example);
+        }
+    }
+}

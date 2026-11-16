@@ -84,5 +84,9 @@ extension-ambiguous files (`.m`, `.sql`, signature files).
 
 ## Help and license
 
+`fastermod -h` or `--help` prints the complete mode and option reference,
+including an example for each mode. A bare invocation requires operands and
+exits with a usage error.
+
 Report problems on the [issue tracker](https://github.com/laputa-systems/fastermod/issues).
 See [LICENSE](LICENSE) for the repository's license information.

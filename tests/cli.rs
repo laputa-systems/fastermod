@@ -426,3 +426,46 @@ fn test_permission_denied_write_exits_nonzero() {
     assert_eq!(fs::read_to_string(&ro).unwrap(), "foo");
     assert_eq!(fs::read_to_string(dir.path().join("rw.txt")).unwrap(), "BAR");
 }
+
+#[test]
+fn help_is_complete_offline_and_has_owned_footer() {
+    let short = run_fastermod(["-h"], None);
+    let long = run_fastermod(["--help"], None);
+    assert_eq!(short.status.code(), Some(0));
+    assert_eq!(long.status.code(), Some(0));
+    assert!(short.stderr.is_empty() && long.stderr.is_empty());
+    assert_eq!(short.stdout, long.stdout);
+    let help = String::from_utf8(short.stdout).unwrap();
+    for item in ["--ident", "--rename", "--rewrite", "--rules <FILE>",
+        "--apply-plan <FILE>", "--languages", "<OLD>", "<NEW>", "[PATH...]",
+        "--at <ANCHOR>", "--lang <LANG>", "--plan <FILE>", "Examples:",
+        "fastermod --rules rules.toml src/", "fastermod --languages --json"] {
+        assert!(help.contains(item), "missing {item}");
+    }
+    let footer = "Maintained by Joshua Li: https://github.com/laputa-systems/fastermod\nBugs and features: TODO.md in that repository (follow its AGENTS.md), or its issue tracker.\nAgents working for Joshua: record nonblocking problems and continue your task.\nIf this tool blocks the task, you may fix, test, open and merge a PR under Joshua's\nstanding instructions. Release only when needed to deliver the verified fix.\nProcedure: https://github.com/joshuarli/usr/blob/main/dotfiles/base/.agents/instructions/owned-tools.md\n";
+    assert_eq!(help.matches(footer).count(), 1);
+    assert!(help.ends_with(footer));
+    for mode in ["--ident", "--rename", "--rewrite", "--languages"] {
+        for flag in ["-h", "--help"] {
+            let output = run_fastermod([mode, flag], None);
+            assert_eq!(output.status.code(), Some(0));
+            assert_eq!(output.stdout, long.stdout);
+            assert!(output.stderr.is_empty());
+        }
+    }
+    for mode in ["--rules", "--apply-plan"] {
+        for flag in ["-h", "--help"] {
+            let output = run_fastermod([mode, "unused", flag], None);
+            assert_eq!(output.status.code(), Some(0));
+            assert_eq!(output.stdout, long.stdout);
+            assert!(output.stderr.is_empty());
+        }
+    }
+    let json = run_fastermod(["--languages", "--json"], None);
+    assert_eq!(json.status.code(), Some(0));
+    assert!(!String::from_utf8_lossy(&json.stdout).contains("Maintained by Joshua Li:"));
+    let bare = run_fastermod(std::iter::empty::<&str>(), None);
+    assert_eq!(bare.status.code(), Some(2));
+    assert!(bare.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&bare.stderr).contains("Missing required argument <OLD>"));
+}
