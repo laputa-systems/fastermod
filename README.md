@@ -39,12 +39,13 @@ case. It changes `tansu2`, `TANSU2`, and `Tansu2` to `tansu`, `TANSU`, and
 `Tansu`. Mixed-case matches use `SUBST` as written. If `REGEX` has uppercase
 letters, matching stays case-sensitive unless you also use `--ignore-case`.
 
-For each match, fastermod displays a diff and asks what to do. Press Enter or
+With terminal input, fastermod displays a diff for each match and asks what to do. Press Enter or
 `y` to apply the change, `n` to skip it, `e` to edit the file, `A` to accept all
 remaining matches, `E` to accept and edit, or `q` to quit. Editing uses
 `$EDITOR`, defaulting to `vim`.
 
-For unattended changes, add `--apply` (or `--accept-all`). `--dry-run`
+With redirected input, fastermod previews changes. For unattended writes, add
+`--apply` (or `--accept-all`). `--dry-run`
 previews without writing and `--check` exits 1 when changes are pending.
 `--json` emits a machine-readable result. `--print-changed-files` prints
 changed paths; it is useful with `--apply` in scripts. Use `-F` or
@@ -73,8 +74,9 @@ there is no daemon, index, watcher, or persistent state.
   memory. Sequential ops are swap/cycle safe.
 - `--plan FILE`: compute edits and write a versioned JSON plan without
   touching sources. `--apply-plan FILE` later validates fingerprints
-  (edited files, read-set, discovery, config) and applies atomically;
-  stale plans are rejected.
+  (edited files, read-set, discovery, config) and rejects stale plans.
+  Each file is written atomically. A later write failure reports which
+  files were already changed.
 
 Safety boundaries: edits are planned as byte spans with expected content
 hashes; apply refuses symlinks, non-regular files, path escapes, and
