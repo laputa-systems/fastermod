@@ -55,3 +55,9 @@ install: release
 
 bench:
 	@$(RUSTYBENCH) baseline --root "$(CURDIR)" --baseline "$(CURDIR)/benches/baseline.json" -- cargo bench --bench bench
+
+PYTHON ?= python3
+
+.PHONY: mutants-diff
+mutants-diff:
+	$(PYTHON) -B tools/mutants_gate.py "$(or $(BASE),origin/main)"

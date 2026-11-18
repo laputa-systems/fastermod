@@ -67,3 +67,31 @@ caught with the CLI cases. The source blob is
 `05677778d1395b85d706b26817021beabe3830c4`. Reproduce with
 `cargo mutants --no-config --gitignore true --file src/plan.rs -F
 'src/plan.rs:(48[0-9]|49[0-9]|50[0-9]|51[0-7]):' --timeout 30`.
+
+## Hosted source mutation trial
+
+The [positive hosted run](https://github.com/laputa-systems/fastermod/actions/runs/44277884233)
+at `d34b68c` caught seven of nine source identities on Linux ARM64
+and macOS. Both runners classified two builds as unviable and had no
+timeouts. Gate times were 108.9 and 239.8 seconds. The two jobs used
+425 runner seconds.
+
+| Control | Result on both platforms |
+| --- | --- |
+| [Documentation edit](https://github.com/laputa-systems/fastermod/pull/38) | No mutants selected. |
+| [Warning test deletion](https://github.com/laputa-systems/fastermod/pull/39) | The empty `DisplayWarning::fmt` implementation survived. |
+| [Mixed change](https://github.com/laputa-systems/fastermod/pull/40) | The warning mutation survived and the three viable changed discovery identities were caught. One discovery build was unviable. |
+| [Uncovered branch](https://github.com/laputa-systems/fastermod/pull/41) | Two of six changed-region identities survived. |
+
+Ordinary CI and lint passed all controls. The mixed control took 199.6
+seconds on Linux and 518.7 on macOS inside the gate. Run
+`make mutants-diff BASE=origin/main` from a clean checkout with Python
+3.14, cargo-mutants 27.1.0 and ignored `.work/` scratch. This trial
+qualifies the source and diagnostic scope. The wider saved-plan
+inventory, terminal review and suite cost remain in DSLP-4.
+
+The workflow watches the source module, tests, fixtures, the gate,
+settings and documentation. Test and fixture changes protect the entire
+source module and include production edits in the same change. Other
+production changes use the ordinary CI check until their mutation
+scopes are qualified.
