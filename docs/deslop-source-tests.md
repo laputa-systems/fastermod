@@ -90,8 +90,9 @@ seconds on Linux and 518.7 on macOS inside the gate. Run
 qualifies the source and diagnostic scope. The wider saved-plan
 inventory, terminal review and suite cost remain in DSLP-4.
 
-The workflow watches the source module, tests, fixtures, the gate,
-settings and documentation. Test and fixture changes protect the entire
-source module and include production edits in the same change. Other
-production changes use the ordinary CI check until their mutation
-scopes are qualified.
+The workflow classifies every pull request. It runs the protected text source
+scope for its source, tests, fixtures and build settings. Production
+edits in the same change join that selection. Changes consisting of
+documentation or production outside the protected scope receive an
+explicit disposition. The other production scopes still use ordinary
+CI while their mutation inventories are qualified.
