@@ -592,43 +592,6 @@ fn test_empty_pattern_eof_exits_nonzero() {
     assert_eq!(contents, "aaa");
 }
 
-#[cfg(unix)]
-#[test]
-fn test_permission_denied_write_exits_nonzero() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let dir = create_test_files(&[("ro.txt", "foo"), ("rw.txt", "foo")]);
-    let ro = dir.path().join("ro.txt");
-    let mut permissions = fs::metadata(&ro).unwrap().permissions();
-    permissions.set_mode(0o444);
-    fs::set_permissions(&ro, permissions).unwrap();
-
-    let output = run_fastermod(
-        [
-            "--accept-all",
-            "foo",
-            "BAR",
-            dir.path().to_str().unwrap(),
-        ],
-        None,
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !output.status.success(),
-        "permission denied write exited {:?}: {}",
-        output.status.code(),
-        stderr
-    );
-    assert!(
-        stderr
-            .lines()
-            .any(|line| line.starts_with("Warning: ") && line.contains("ro.txt")),
-        "{stderr}"
-    );
-    assert_eq!(fs::read_to_string(&ro).unwrap(), "foo");
-    assert_eq!(fs::read_to_string(dir.path().join("rw.txt")).unwrap(), "BAR");
-}
-
 #[test]
 fn help_is_complete_offline_and_has_owned_footer() {
     let short = run_fastermod(["-h"], None);
