@@ -413,6 +413,60 @@ fn test_no_ignore_files() {
 }
 
 #[test]
+fn json_apply_observes_the_full_ignore_configuration() {
+    for no_ignore in [false, true] {
+        let root = TestDir::with_prefix("fastermod-ignore-sources-");
+        let scan = root.path().join("scan");
+        let xdg = root.path().join("xdg");
+        let home = root.path().join("home");
+        fs::create_dir(&scan).unwrap();
+        fs::create_dir_all(xdg.join("git")).unwrap();
+        fs::create_dir(&home).unwrap();
+        let config = home.join(".gitconfig");
+        fs::write(&config, "").unwrap();
+        let init = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(root.path())
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_CONFIG_COUNT")
+            .output()
+            .unwrap();
+        assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
+        fs::write(root.path().join(".ignore"), "parent.txt\n").unwrap();
+        fs::write(scan.join(".ignore"), "local.txt\n").unwrap();
+        fs::write(scan.join(".gitignore"), "tracked-ignore.txt\n").unwrap();
+        fs::write(root.path().join(".git/info/exclude"), "exclude.txt\n").unwrap();
+        fs::write(xdg.join("git/ignore"), "global.txt\n").unwrap();
+        let ignored = ["parent.txt", "local.txt", "tracked-ignore.txt", "exclude.txt", "global.txt"];
+        for name in ignored.into_iter().chain(["visible.txt", ".hidden.txt"]) {
+            fs::write(scan.join(name), "old content\n").unwrap();
+        }
+
+        let mut command = fastermod_command();
+        command.args(["--apply", "--json", "old content", "new content"]).arg(&scan)
+            .current_dir(root.path())
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &xdg)
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        if no_ignore {
+            command.arg("--no-ignore");
+        }
+        let output = command.output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(fs::read_to_string(scan.join("visible.txt")).unwrap(), "new content\n");
+        assert_eq!(fs::read_to_string(scan.join(".hidden.txt")).unwrap(), "old content\n");
+        for name in ignored {
+            let expected = if no_ignore { "new content\n" } else { "old content\n" };
+            assert_eq!(fs::read_to_string(scan.join(name)).unwrap(), expected, "{name}");
+        }
+    }
+}
+
+#[test]
 fn test_replace_next_to_unicode_character() {
     let contents = "I have “unicodequotes”";
     let dir = create_test_files(&[("foo.txt", contents)]);

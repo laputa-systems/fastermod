@@ -28,3 +28,21 @@ text decoding behavior, and first error retention. The whole-change
 gate, saved-plan and review boundaries, and paired suite cost remain
 in DSLP-4. The product workload acceptance for the source read repair
 is recorded separately in [performance evidence](deslop-text-source-perf.md).
+
+## JSON apply discovery
+
+The JSON apply route exercises the snapshot discovery path. An isolated
+Git fixture supplies a parent and local `.ignore`, a `.gitignore`, a
+repository exclude file and a global ignore file. The test checks every
+file on disk with and without `--no-ignore`, and keeps a hidden file
+separate from the ignore rules.
+
+At `1468b653`, cargo-mutants 27.1.0 selected seven identities in
+`walk_builder_with_file_set` and `matching_files`. The baseline missed
+all six viable checks. The new test catches all six negation changes.
+The remaining build is unviable. Both lists have SHA-256
+`ff5f269aad3cc8611cf5dd130f87057813275d3830361ad14853d77996941ef6`
+and use discovery source blob `0744a564c952ef3210a78bca44d26bf4967f1e68`.
+Use `cargo mutants --no-config --file src/discovery.rs --re
+'in (walk_builder_with_file_set|matching_files)$' --timeout 25 -- --locked`
+in a disposable checkout.
