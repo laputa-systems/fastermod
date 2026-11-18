@@ -67,3 +67,5 @@ caught with the CLI cases. The source blob is
 `05677778d1395b85d706b26817021beabe3830c4`. Reproduce with
 `cargo mutants --no-config --gitignore true --file src/plan.rs -F
 'src/plan.rs:(48[0-9]|49[0-9]|50[0-9]|51[0-7]):' --timeout 30`.
+
+The source mutation trial exercises the ordinary command-line tests.
