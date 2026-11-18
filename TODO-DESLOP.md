@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 6
+Next: 7
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier Calibration). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -70,4 +70,14 @@ extraction predates the available import history.
 - **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
 - **Fix with:** deslop
 - **Effort:** M
+
+
+### DSLP-6 · P3 · Saved plans apply conflicting entries for one file
+
+- **Area:** fastermod · saved plans
+- **Where:** src/plan.rs:307, src/plan.rs:525, src/plan.rs:1077
+- **Problem:** At fda1e8f, generate a one-file plan with --plan. Duplicate its only file entry and give the duplicate different replacement bytes and after text. --apply-plan exits 0, reports two files applied, and leaves only the second entry's bytes. The checked-in generator produced one entry. The demonstrated failure requires a modified saved plan.
+- **Recommendation:** Reject duplicate target entries before any write. Keep the accepted plan format and add a CLI fixture that checks the failure status and the input file's original bytes.
+- **Fix with:** durable-state
+- **Effort:** S
 
