@@ -420,6 +420,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             && !dry_run
             && !check
             && !json
+            && plan_file.is_none()
             && std::io::stdin().is_terminal()
             && std::io::stdout().is_terminal();
         if interactive {
@@ -446,6 +447,7 @@ pub(crate) fn fastermod() -> std::result::Result<i32, Failure> {
             && !dry_run
             && !check
             && !json
+            && plan_file.is_none()
             && std::io::stdin().is_terminal()
             && std::io::stdout().is_terminal();
         return run_syntax_pipeline(
@@ -520,8 +522,8 @@ not what you want. Press Enter to continue anyway or Ctrl-C to quit.",
     let apply = accept_all || apply;
     let stdout_tty = std::io::stdout().is_terminal();
     // Interactive per-match review needs a terminal on both sides and no
-    // explicit apply/dry-run/check/JSON request.
-    let interactive = !apply && !dry_run && !check && !json && stdin_tty && stdout_tty;
+    // explicit apply, preview, or plan request.
+    let interactive = !apply && !dry_run && !check && !json && plan_file.is_none() && stdin_tty && stdout_tty;
 
     if interactive {
         operational(

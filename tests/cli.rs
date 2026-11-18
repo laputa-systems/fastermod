@@ -46,6 +46,64 @@ fn fastermod_command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_fastermod"))
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn plan_writes_only_the_plan_with_a_terminal_attached() {
+    use rustix::io::{FdFlags, fcntl_setfd};
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    use std::os::unix::ffi::OsStrExt;
+    use std::time::{Duration, Instant};
+
+    let root = TestDir::with_prefix("fastermod-terminal-plan-");
+    let source = root.path().join("input.py");
+    let plan = root.path().join("plan.json");
+    let rules = root.path().join("rules.toml");
+    fs::write(&source, "foo = 1\n").unwrap();
+    fs::write(&rules, "[[op]]\ntype = \"ident\"\nold = \"foo\"\nnew = \"bar\"\n").unwrap();
+    for (mode, args) in [
+        ("text", vec!["foo", "bar"]),
+        ("ident", vec!["--ident", "foo", "bar"]),
+        ("rules", vec!["--rules", rules.to_str().unwrap()]),
+    ] {
+        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+        fcntl_setfd(&master, FdFlags::CLOEXEC).unwrap();
+        grantpt(&master).unwrap();
+        unlockpt(&master).unwrap();
+        let name = ptsname(&master, Vec::new()).unwrap();
+        let slave = fs::OpenOptions::new().read(true).write(true)
+            .open(std::ffi::OsStr::from_bytes(name.as_bytes())).unwrap();
+        let mut master = File::from(master);
+        master.write_all(b"y\n").unwrap();
+        let mut child = fastermod_command()
+            .args(args)
+            .arg("--plan").arg(&plan)
+            .arg(&source)
+            .stdin(Stdio::from(slave.try_clone().unwrap()))
+            .stdout(Stdio::from(slave))
+            .stderr(Stdio::piped())
+            .spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                child.wait().unwrap();
+                panic!("{mode} plan creation stayed interactive");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{mode}: {}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "foo = 1\n", "{mode} edited the source");
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&plan).unwrap()).unwrap();
+        assert_eq!(saved["mode"], mode);
+        assert_eq!(saved["applied"], false);
+        assert_eq!(saved["coverage"]["files_edited"], 1);
+        assert_eq!(saved["files"][0]["before"], "foo = 1\n");
+        assert_eq!(saved["files"][0]["after"], "bar = 1\n");
+        fs::remove_file(&plan).unwrap();
+    }
+}
+
 fn run_fastermod<I, S>(args: I, input: Option<&str>) -> std::process::Output
 where
     I: IntoIterator<Item = S>,
