@@ -73,14 +73,6 @@ not rerun the performance workload.
 - **Effort:** M
 
 
-### DSLP-7 · P2 · Plan creation can enter interactive apply on a terminal
-
-- **Area:** fastermod · saved plans
-- **Where:** src/engine.rs:417, src/engine.rs:441, src/engine.rs:533, docs/refactor/cli.md
-- **Problem:** At 47771a5, run --plan against a scratch text file from a 24-row PTY with stdin and stdout attached. Fastermod prompts to accept the edit. Accepting exits 0, changes the source, and creates no plan. --ident reproduces the same result. The non-TTY control writes the plan and preserves the source.
-- **Recommendation:** Route --plan through the existing non-interactive plan tail for every content mode. Add a real PTY fixture that checks the exact plan, original source bytes and absence of a review prompt.
-- **Fix with:** design-cli
-- **Effort:** S
 
 
 ### DSLP-8 · P2 · An unreadable explicit source reports a clean check
