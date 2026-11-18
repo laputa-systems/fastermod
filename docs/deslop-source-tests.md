@@ -46,3 +46,24 @@ and use discovery source blob `0744a564c952ef3210a78bca44d26bf4967f1e68`.
 Use `cargo mutants --no-config --file src/discovery.rs --re
 'in (walk_builder_with_file_set|matching_files)$' --timeout 25 -- --locked`
 in a disposable checkout.
+
+## Saved-plan read-set revalidation
+
+The CLI generates a fresh identifier plan inside its own discovery root
+and then applies it in a separate process. An unedited file in a nested
+directory has the same basename as the plan. It enters the read set
+because it contains the searched identifier in a comment. Application
+excludes the plan by its resolved identity.
+
+The unchanged case applies exactly the planned edit. An edited file,
+an unedited file whose contents changed, or an added or removed file
+each produce the corresponding stale diagnostic and leave the target
+bytes intact. Run `cargo test --test cli
+saved_plan_revalidates_the_read_set_before_writing`.
+
+The eight cargo-mutants 27.1.0 identities at `src/plan.rs:489–513`
+were already caught by the original suite at `739619d` and remained
+caught with the CLI cases. The source blob is
+`05677778d1395b85d706b26817021beabe3830c4`. Reproduce with
+`cargo mutants --no-config --gitignore true --file src/plan.rs -F
+'src/plan.rs:(48[0-9]|49[0-9]|50[0-9]|51[0-7]):' --timeout 30`.
