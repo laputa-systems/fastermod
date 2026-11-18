@@ -85,7 +85,13 @@ timeouts. Gate times were 108.9 and 239.8 seconds. The two jobs used
 
 Ordinary CI and lint passed all controls. The mixed control took 199.6
 seconds on Linux and 518.7 on macOS inside the gate. Run
-`make mutants-diff BASE=origin/main` on the trial branch with Python
+`make mutants-diff BASE=origin/main` from a clean checkout with Python
 3.14, cargo-mutants 27.1.0 and ignored `.work/` scratch. This trial
 qualifies the source and diagnostic scope. The wider saved-plan
 inventory, terminal review and suite cost remain in DSLP-4.
+
+The workflow watches the source module, tests, fixtures, the gate,
+settings and documentation. Test and fixture changes protect the entire
+source module and include production edits in the same change. Other
+production changes use the ordinary CI check until their mutation
+scopes are qualified.

@@ -1,7 +1,25 @@
-name: Text source mutation trial
+name: Text source mutation
 
 on:
   pull_request:
+    paths:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'LICENSE.*'
+      - '.gitignore'
+      - '.cargo/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/mutation-trial.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'build.rs'
+      - 'rust-toolchain.toml'
+      - 'rust-toolchain'
+      - 'src/source.rs'
+      - 'tests/**'
+      - 'tools/mutants_gate.py'
+      - 'tools/mutants_gate.LICENSE'
 
 permissions:
   contents: read
@@ -9,7 +27,6 @@ permissions:
 jobs:
   mutants:
     name: Text source mutation (${{ matrix.os }})
-    if: github.head_ref == 'ci/deslop-fastermod-source-gate' || github.base_ref == 'ci/deslop-fastermod-source-gate'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 13
     strategy:
