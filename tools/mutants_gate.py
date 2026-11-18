@@ -32,14 +32,14 @@ def untested(pending):
 def classify(path, status, config):
     if path in GATE:
         return 'gate'
-    if any(fnmatch.fnmatchcase(path, pattern) for pattern in config['irrelevant']):
-        return 'irrelevant'
-    if path.startswith('src/') and path.endswith('.rs'):
-        return 'deleted production' if status == 'D' else 'production'
     if path.startswith(('tests/support/', 'tests/fixtures/', 'fixtures/')):
         return 'fixtures'
     if path.startswith('tests/'):
         return 'tests'
+    if any(fnmatch.fnmatchcase(path, pattern) for pattern in config['irrelevant']):
+        return 'irrelevant'
+    if path.startswith('src/') and path.endswith('.rs'):
+        return 'deleted production' if status == 'D' else 'production'
     if path in {'.gitignore', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml', 'build.rs'} or path.startswith('.cargo/') or Path(path).name in {'Cargo.toml', 'Cargo.lock', 'build.rs'}:
         return 'build configuration'
     return 'unclassified'
