@@ -148,6 +148,33 @@ where
     }
 }
 
+#[test]
+fn text_commands_report_matching_source_decode_failure() {
+    let dir = TestDir::with_prefix("fastermod-source-error-");
+    let source = dir.path().join("invalid.txt");
+    let invalid = b"foo\xff\n";
+    fs::write(&source, invalid).unwrap();
+    for mode in ["--check", "--apply", "--dry-run"] {
+        let output = run_fastermod([mode, "foo", "bar", source.to_str().unwrap()], None);
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(output.status.code(), Some(4), "{mode}: {stderr}");
+        assert!(stderr.contains("invalid.txt") && stderr.contains("UTF-8"), "{stderr}");
+        assert_eq!(fs::read(&source).unwrap(), invalid);
+    }
+}
+
+#[test]
+fn text_commands_skip_nul_detected_binary_input() {
+    let dir = TestDir::with_prefix("fastermod-binary-source-");
+    let source = dir.path().join("binary.dat");
+    let binary = b"\0foo\xff\n";
+    fs::write(&source, binary).unwrap();
+    for mode in ["--check", "--apply"] {
+        assert_fastermod([mode, "foo", "bar", source.to_str().unwrap()], None, Some(""));
+        assert_eq!(fs::read(&source).unwrap(), binary);
+    }
+}
+
 fn create_test_files<'a>(
     names_and_contents: impl IntoIterator<Item = &'a (&'a str, &'a str)>,
 ) -> TestDir {

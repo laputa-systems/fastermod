@@ -11,7 +11,7 @@ use regex_lite::RegexBuilder;
 
 use crate::discovery::FileSet;
 use crate::review::Fastermod;
-use crate::source::{file_contents_if_matches, make_searcher};
+use crate::source::{display_warning, file_contents_if_matches, make_searcher};
 use crate::text::Substitution;
 
 pub type BenchmarkResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -41,7 +41,13 @@ pub fn search_file(
     matcher: &RegexMatcher,
     path: &Path,
 ) -> Option<usize> {
-    file_contents_if_matches(searcher, matcher, path).map(|contents| contents.len())
+    match file_contents_if_matches(searcher, matcher, path) {
+        Ok(contents) => contents.map(|contents| contents.len()),
+        Err(error) => {
+            eprintln!("{}", display_warning(&error));
+            None
+        }
+    }
 }
 
 pub fn diff_line_count(original: &str, edited: &str) -> usize {

@@ -120,13 +120,15 @@ pub(crate) fn matching_files(
                 && file_type.is_file()
             {
                 let path = dirent.path();
-                if looks_like_code(path)
-                    && let Some(contents) = file_contents_if_matches(&mut searcher, &matcher, path)
-                {
-                    files.lock().unwrap().push(SourceFile {
-                        path: path.to_path_buf(),
-                        contents,
-                    });
+                if looks_like_code(path) {
+                    match file_contents_if_matches(&mut searcher, &matcher, path) {
+                        Ok(Some(contents)) => files.lock().unwrap().push(SourceFile {
+                            path: path.to_path_buf(),
+                            contents,
+                        }),
+                        Ok(None) => {}
+                        Err(error) => remember_first_error(&file_error, error),
+                    }
                 }
             }
             WalkState::Continue
