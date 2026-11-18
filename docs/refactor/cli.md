@@ -17,11 +17,10 @@ fastermod --apply-plan <PLAN_FILE>
 fastermod --languages [--json]
 ```
 
-Mode flags are mutually exclusive; at most one may appear. `--rules`,
-`--apply-plan`, and `--languages` take their file or operand as option
-values, so positionals after them are roots (default `.`). Mode flags
-were chosen over subcommands because `rename`, `text`, and `apply` are
-plausible regex operands.
+Mode flags are mutually exclusive. `--rules` takes a rules file followed by
+optional roots that default to `.`. `--apply-plan` takes a plan file, and
+`--languages` takes no operand. Mode flags let regex operands include
+`rename`, `text`, and `apply`.
 
 ### Carried-over options
 
@@ -92,10 +91,8 @@ Exit codes:
 
 Rules:
 
-- Interactive per-match review requires stdin to be a TTY **and** no apply
-  flag. On a non-TTY stdin without `--apply`/`--accept-all`, the tool previews
-  diffs and exits 0 without writing; it never hangs or writes. `--dry-run`
-  forces this on a TTY too.
+- Review requires terminals on both stdin and stdout. Ordinary preview
+  prints diffs without writing. `--dry-run` forces preview on a terminal.
 - `--json` selects machine output; review prompts are unavailable, so JSON
   runs preview unless `--apply`/`--accept-all` is given.
 - A `--rename` is reviewed as **one** operation: a single accept/reject for
