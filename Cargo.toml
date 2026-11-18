@@ -52,6 +52,9 @@ harness = false
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1", default-features = false, features = ["std", "termios"] }
 
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1.1", default-features = false, features = ["pty"] }
+
 [profile.dev]
 debug = 0
 strip = "debuginfo"
