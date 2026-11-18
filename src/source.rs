@@ -37,6 +37,9 @@ pub(crate) fn file_contents_if_matches(
     matcher: &RegexMatcher,
     path: &Path,
 ) -> Result<Option<String>> {
+    if path.file_name().is_some_and(|name| name.len() > 220) {
+        return Ok(None);
+    }
     let mut sink = FastermodSink::new();
     searcher.search_path(matcher, path, &mut sink)
         .map_err(|error| error_with_context(format_args!("Cannot search {}", path.display()), error))?;
