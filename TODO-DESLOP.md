@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 7
+Next: 10
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier Calibration). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -29,20 +29,21 @@ time. Keep this as a baseline for later paired measurements. The earlier
 | `search_matching_1mb_file` | 122771, 83500, 123313 | 472956 |
 | `search_missing_1mb_file` | 79771, 59667, 79167 | 0 |
 
-Diagnose is next. The source revision of the modified `imara-diff`
-extraction predates the available import history.
+The source revision of the modified `imara-diff` extraction predates
+the available import history.
+
+Diagnose at `47771a5` reviewed CLI routing, discovery, source reads,
+plan revalidation, editor and terminal handling, and the supported
+rename boundaries. The saved-plan duplicate finding remains DSLP-6.
+Two new P2 findings cover terminal plan routing and read errors that
+return success. A debug-only short-terminal failure is DSLP-9. The
+macOS arm64 CLI and fixture suite passed all 42 tests, and Clippy passed.
+The review sampled language adapters through their fixtures and did
+not rerun the performance workload.
 
 ## Tickets
 
 
-### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
-
-- **Area:** deslop · diagnose
-- **Where:** whole repository
-- **Problem:** No review has ranked this repository's risks for the deslop pass.
-- **Recommendation:** Run the deslop Diagnose step. Accept: the diff touches only docs, comments, and this file, and every finding names its Fix with.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-3 · P2 · Types: strict profile and typing findings
 
@@ -72,6 +73,26 @@ extraction predates the available import history.
 - **Effort:** M
 
 
+### DSLP-7 · P2 · Plan creation can enter interactive apply on a terminal
+
+- **Area:** fastermod · saved plans
+- **Where:** src/engine.rs:417, src/engine.rs:441, src/engine.rs:533, docs/refactor/cli.md
+- **Problem:** At 47771a5, run --plan against a scratch text file from a 24-row PTY with stdin and stdout attached. Fastermod prompts to accept the edit. Accepting exits 0, changes the source, and creates no plan. --ident reproduces the same result. The non-TTY control writes the plan and preserves the source.
+- **Recommendation:** Route --plan through the existing non-interactive plan tail for every content mode. Add a real PTY fixture that checks the exact plan, original source bytes and absence of a review prompt.
+- **Fix with:** design-cli
+- **Effort:** S
+
+
+### DSLP-8 · P2 · An unreadable explicit source reports a clean check
+
+- **Area:** fastermod · discovery
+- **Where:** src/source.rs:32, src/discovery.rs:117, src/engine.rs:87
+- **Problem:** At 47771a5, create a scratch text file containing foo and set its mode to 000 as an unprivileged user. --check foo bar FILE warns Permission denied, prints no pending path and exits 0. With a matching file containing invalid UTF-8, --apply also warns, leaves the edit unapplied and exits 0.
+- **Recommendation:** Propagate read and decode failures into the existing operational error path while preserving binary exclusions. Exercise the command with an explicitly named file and check exit 4 and its diagnostic.
+- **Fix with:** error-model
+- **Effort:** M
+
+
 ### DSLP-6 · P3 · Saved plans apply conflicting entries for one file
 
 - **Area:** fastermod · saved plans
@@ -79,5 +100,15 @@ extraction predates the available import history.
 - **Problem:** At fda1e8f, generate a one-file plan with --plan. Duplicate its only file entry and give the duplicate different replacement bytes and after text. --apply-plan exits 0, reports two files applied, and leaves only the second entry's bytes. The checked-in generator produced one entry. The demonstrated failure requires a modified saved plan.
 - **Recommendation:** Reject duplicate target entries before any write. Keep the accepted plan format and add a CLI fixture that checks the failure status and the input file's original bytes.
 - **Fix with:** durable-state
+- **Effort:** S
+
+
+### DSLP-9 · P3 · Short terminals underflow the preview height budget
+
+- **Area:** fastermod · terminal review
+- **Where:** src/review.rs:377, src/terminal.rs:62
+- **Problem:** At 47771a5 in a debug build, a PTY reporting 12 rows and 80 columns aborts a one-line diff preview with attempt to subtract with overflow before the review prompt.
+- **Recommendation:** Saturate the terminal-height budget with a narrow-terminal test that still prints the changed lines.
+- **Fix with:** os-boundaries
 - **Effort:** S
 

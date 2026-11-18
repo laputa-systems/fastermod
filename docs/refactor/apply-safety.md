@@ -6,7 +6,7 @@ not. This document is the normative companion to the plan/apply code in
 
 ## Write mechanics
 
-- Every write goes through `Fastermod::save`: a same-directory temporary
+- Source edits go through `Fastermod::save`: a same-directory temporary
   file (`.{name}.tmp.{pid}-{counter}`), `fsync`, then `rename(2)` over the
   target, followed by a best-effort parent-directory `fsync` on Unix.
 - Each file replacement is atomic: readers see either the complete old
@@ -18,10 +18,10 @@ not. This document is the normative companion to the plan/apply code in
   lists exactly which paths were applied and which failed. JSON output
   carries the same evidence via top-level `applied` and per-edit
   `applied` flags plus an `apply-failed` diagnostic.
-- Preflight is all-or-refuse: plan validation, root containment,
+- Plan application preflight checks plan validation, root containment,
   file-type checks, and staleness (content hash) all run before the first
-  write. A stale, escaped, symlinked or unreadable file refuses the whole
-  operation.
+  source write. A stale, escaped, symlinked or unreadable planned file
+  refuses the operation before any source is written.
 
 ## Staleness and TOCTOU
 
