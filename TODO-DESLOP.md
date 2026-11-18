@@ -41,18 +41,28 @@ macOS arm64 CLI and fixture suite passed all 42 tests, and Clippy passed.
 The review sampled language adapters through their fixtures and did
 not rerun the performance workload.
 
+Types at `88d1e1f` used all-target, all-feature Clippy with the pinned
+nightly `5b7b37aef` on macOS arm64. Candidate warnings use `-W unsafe_code`
+and `-W clippy::<rule>` in place of `--deny warnings`. Counts deduplicate
+JSON diagnostics by rule, file and line.
+
+| Candidate | Locations | Decision |
+| --- | ---: | --- |
+| `unsafe_code` | 0 | No demonstrated rejection witness. |
+| `wildcard_enum_match_arm`, `match_wildcard_for_single_variants` | 20, 2 | These include deliberate unrecognized-option and grammar fallbacks. |
+| `cast_possible_truncation`, `cast_sign_loss` | 14, 2 | A saved-plan version could be narrowed before comparison. Reject at its original width. Remaining warnings include conversions outside the shipped target widths. |
+| `unwrap_used`, `expect_used` | 233, 2 | Includes infallible writes to strings, grammar invariants and test assertions. |
+| `redundant_clone`, `needless_pass_by_value` | 4, 2 | Cleanup candidates outside the type contract. |
+
+The loader rejects an unsupported schema number in full and continues to
+read plans written by the existing serializer. The regression fails on the
+previous comparison, while the existing round-trip fixture still passes.
+The ordinary lint profile remains clean and no escape hatch was added.
+
 ## Tickets
 
 
 
-### DSLP-3 · P2 · Types: strict profile and typing findings
-
-- **Area:** deslop · types
-- **Where:** type checker and lint configuration; Rust sources
-- **Problem:** The strict-profile candidates in the deslop skill's tools reference have not been measured here.
-- **Recommendation:** Run the deslop Types step. Accept: clean at the adopted profile, escape hatches not increased, witnesses recorded.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
 
