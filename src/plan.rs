@@ -866,6 +866,21 @@ mod apply_tests {
     }
 
     #[test]
+    fn load_rejects_versions_outside_the_schema_width() {
+        let dir = TempDir::new();
+        write(&dir, "a.txt", "foo\n");
+        let plan = plan_for(&dir, &["a.txt"]);
+        let mut saved = save(&plan);
+        let unsupported = (1_u64 << 32) + u64::from(PLAN_SCHEMA);
+        saved["schema"] = serde_json::json!(unsupported);
+
+        assert_eq!(
+            load(&saved.to_string()).unwrap_err(),
+            format!("unsupported plan schema {unsupported}"),
+        );
+    }
+
+    #[test]
     fn apply_rejects_changed_unedited_read_set_file() {
         let dir = TempDir::new();
         write(&dir, "a.txt", "foo\n");
@@ -1077,8 +1092,8 @@ fn file_from(v: &serde_json::Value) -> std::result::Result<PlannedFile, String> 
 pub(crate) fn load(text: &str) -> std::result::Result<EditPlan, String> {
     let v: serde_json::Value =
         serde_json::from_str(text).map_err(|e| format!("invalid plan JSON: {e}"))?;
-    let schema = get_u64(&v, "schema")? as u32;
-    if schema != PLAN_SCHEMA {
+    let schema = get_u64(&v, "schema")?;
+    if schema != u64::from(PLAN_SCHEMA) {
         return Err(format!("unsupported plan schema {schema}"));
     }
     let coverage = v
@@ -1208,7 +1223,7 @@ pub(crate) fn load(text: &str) -> std::result::Result<EditPlan, String> {
         })
     });
     Ok(EditPlan {
-        schema,
+        schema: PLAN_SCHEMA,
         mode: get_str(&v, "mode")?.to_string(),
         applied: v.get("applied").and_then(|a| a.as_bool()).unwrap_or(false),
         operation_id: get_str(&v, "operation_id")?.to_string(),
