@@ -502,11 +502,18 @@ fn test_permission_denied_write_exits_nonzero() {
         ],
         None,
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !output.status.success(),
         "permission denied write exited {:?}: {}",
         output.status.code(),
-        String::from_utf8_lossy(&output.stderr)
+        stderr
+    );
+    assert!(
+        stderr
+            .lines()
+            .any(|line| line.starts_with("Warning: ") && line.contains("ro.txt")),
+        "{stderr}"
     );
     assert_eq!(fs::read_to_string(&ro).unwrap(), "foo");
     assert_eq!(fs::read_to_string(dir.path().join("rw.txt")).unwrap(), "BAR");

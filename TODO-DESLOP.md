@@ -67,9 +67,9 @@ The ordinary lint profile remains clean and no escape hatch was added.
 ### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
 
 - **Area:** deslop · tests
-- **Where:** test suites and CI
-- **Problem:** Coverage and mutation results are unmeasured; no deslop mutation lane exists.
-- **Recommendation:** Run the deslop Tests step. Accept: no undispositioned survivor in critical code, the test cost budget holds, and the lane is green where the tools are mirrored.
+- **Where:** src/source.rs, src/discovery.rs, src/review.rs, saved-plan admission, CLI tests and hosted CI
+- **Problem:** docs/deslop-source-tests.md records the source warning, search and binary decisions. All seven viable identities were caught. The remaining discovery, plan and review paths and the retained whole-change gate still need coverage.
+- **Recommendation:** Exercise real text discovery, saved-plan rejection and review output at the CLI. Verify the related consumers, critical scope, hosted negative controls and paired suite cost before closing.
 - **Fix with:** deslop
 - **Effort:** M
 
