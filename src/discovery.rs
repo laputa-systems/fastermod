@@ -88,12 +88,13 @@ pub(crate) fn matching_files(
     no_ignore: bool,
     matcher: &RegexMatcher,
 ) -> Result<Vec<SourceFile>> {
+    let skip_ignore_rules = no_ignore;
     let walk = walk_builder_with_file_set(dirs, file_set)?
         .hidden(!hidden)
         .parents(!no_ignore)
         .ignore(!no_ignore)
         .git_ignore(!no_ignore)
-        .git_global(!no_ignore)
+        .git_global(!skip_ignore_rules)
         .git_exclude(!no_ignore)
         .threads(min(12, available_worker_threads()))
         .build_parallel();
