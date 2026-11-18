@@ -476,10 +476,12 @@ impl Fastermod {
                         if !looks_like_code(path) {
                             return WalkState::Continue;
                         }
-                        if let Some(contents) =
-                            file_contents_if_matches(&mut searcher, &matcher, path)
-                            && tx.send((path.to_path_buf(), contents)).is_err()
-                        {
+                        let entry = match file_contents_if_matches(&mut searcher, &matcher, path) {
+                            Ok(Some(contents)) => Ok((path.to_path_buf(), contents)),
+                            Ok(None) => return WalkState::Continue,
+                            Err(error) => Err(error),
+                        };
+                        if tx.send(entry).is_err() {
                             return WalkState::Quit;
                         }
                     }
@@ -489,7 +491,8 @@ impl Fastermod {
         });
 
         let mut visited = HashSet::default();
-        while let Ok((path, contents)) = rx.recv() {
+        while let Ok(entry) = rx.recv() {
+            let (path, contents) = entry?;
             visited.insert(path.clone());
             self.present_and_apply_patches(regex, substitution, &path, contents)?;
             if self.yes_to_all {
@@ -604,21 +607,25 @@ impl Fastermod {
                     if !looks_like_code(path) {
                         return WalkState::Continue;
                     }
-                    if let Some(contents) = file_contents_if_matches(&mut searcher, &matcher, path)
-                    {
-                        let patching_result =
-                            fm.fast_patch(&regex, substitution.as_ref(), path, &contents);
-                        match patching_result {
-                            Ok(changed_file) => {
-                                if should_record_changed_files && changed_file {
-                                    let mut changed_files = changed_files.lock().unwrap();
-                                    changed_files.push(path.to_owned())
-                                }
+                    let contents = match file_contents_if_matches(&mut searcher, &matcher, path) {
+                        Ok(Some(contents)) => contents,
+                        Ok(None) => return WalkState::Continue,
+                        Err(error) => {
+                            remember_first_error(&file_error, error);
+                            return WalkState::Continue;
+                        }
+                    };
+                    let patching_result = fm.fast_patch(&regex, substitution.as_ref(), path, &contents);
+                    match patching_result {
+                        Ok(changed_file) => {
+                            if should_record_changed_files && changed_file {
+                                let mut changed_files = changed_files.lock().unwrap();
+                                changed_files.push(path.to_owned())
                             }
-                            Err(error) => {
-                                eprintln!("{}", display_warning(&error));
-                                remember_first_error(&file_error, error);
-                            }
+                        }
+                        Err(error) => {
+                            eprintln!("{}", display_warning(&error));
+                            remember_first_error(&file_error, error);
                         }
                     }
                 }

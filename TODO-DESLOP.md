@@ -83,14 +83,6 @@ not rerun the performance workload.
 - **Effort:** S
 
 
-### DSLP-8 · P2 · An unreadable explicit source reports a clean check
-
-- **Area:** fastermod · discovery
-- **Where:** src/source.rs:32, src/discovery.rs:117, src/engine.rs:87
-- **Problem:** At 47771a5, create a scratch text file containing foo and set its mode to 000 as an unprivileged user. --check foo bar FILE warns Permission denied, prints no pending path and exits 0. With a matching file containing invalid UTF-8, --apply also warns, leaves the edit unapplied and exits 0.
-- **Recommendation:** Propagate read and decode failures into the existing operational error path while preserving binary exclusions. Exercise the command with an explicitly named file and check exit 4 and its diagnostic.
-- **Fix with:** error-model
-- **Effort:** M
 
 
 ### DSLP-6 · P3 · Saved plans apply conflicting entries for one file

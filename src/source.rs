@@ -11,7 +11,7 @@ use grep::searcher::SearcherBuilder;
 use grep::searcher::Sink;
 use grep::searcher::SinkMatch;
 
-use crate::Error;
+use crate::{Error, Result, error_with_context};
 
 #[derive(Clone)]
 pub(crate) struct SourceFile {
@@ -36,21 +36,15 @@ pub(crate) fn file_contents_if_matches(
     searcher: &mut Searcher,
     matcher: &RegexMatcher,
     path: &Path,
-) -> Option<String> {
+) -> Result<Option<String>> {
     let mut sink = FastermodSink::new();
-    if let Err(e) = searcher.search_path(matcher, path, &mut sink) {
-        eprintln!("{}", display_warning(&e.into()));
-    };
+    searcher.search_path(matcher, path, &mut sink)
+        .map_err(|error| error_with_context(format_args!("Cannot search {}", path.display()), error))?;
     if sink.did_match {
-        match read_to_string(path) {
-            Ok(c) => Some(c),
-            Err(e) => {
-                eprintln!("{}", display_warning(&e.into()));
-                None
-            }
-        }
+        read_to_string(path).map(Some)
+            .map_err(|error| error_with_context(format_args!("Cannot read {}", path.display()), error))
     } else {
-        None
+        Ok(None)
     }
 }
 
