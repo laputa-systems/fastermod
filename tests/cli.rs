@@ -149,6 +149,62 @@ where
 }
 
 #[test]
+fn saved_plan_revalidates_the_read_set_before_writing() {
+    for (case, expected_error) in [
+        ("unchanged", None),
+        ("edited", Some("files changed since analysis")),
+        ("unedited", Some("analyzed files changed since analysis")),
+        ("added", Some("files added or removed since analysis")),
+        ("removed", Some("files added or removed since analysis")),
+    ] {
+        let dir = TestDir::with_prefix("fastermod-plan-read-set-");
+        let source = dir.path().join("input.py");
+        let plan = dir.path().join("plan.py");
+        let nested = dir.path().join("nested");
+        let unedited = nested.join("plan.py");
+        fs::create_dir(&nested).unwrap();
+        fs::write(&source, "foo = 1\n").unwrap();
+        fs::write(&unedited, "# foo\n").unwrap();
+        let preview = fastermod_command()
+            .args(["--ident", "foo", "bar", "--plan"])
+            .arg(&plan)
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        assert!(
+            preview.status.success(),
+            "{case}: {}",
+            String::from_utf8_lossy(&preview.stderr)
+        );
+        assert_eq!(fs::read_to_string(&source).unwrap(), "foo = 1\n");
+
+        match case {
+            "edited" => fs::write(&source, "foo = 2\n").unwrap(),
+            "unedited" => fs::write(&unedited, "# foo changed\n").unwrap(),
+            "added" => fs::write(dir.path().join("new.py"), "new\n").unwrap(),
+            "removed" => fs::remove_file(&unedited).unwrap(),
+            _ => {}
+        }
+        let bytes_before = fs::read(&source).unwrap();
+        let applied = fastermod_command()
+            .arg("--apply-plan")
+            .arg(&plan)
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&applied.stderr);
+        if let Some(error) = expected_error {
+            assert_eq!(applied.status.code(), Some(4), "{case}: {stderr}");
+            assert!(stderr.contains(error), "{case}: {stderr}");
+            assert_eq!(fs::read(&source).unwrap(), bytes_before, "{case}");
+        } else {
+            assert!(applied.status.success(), "{case}: {stderr}");
+            assert_eq!(fs::read_to_string(&source).unwrap(), "bar = 1\n");
+            assert_eq!(fs::read_to_string(&unedited).unwrap(), "# foo\n");
+        }
+    }
+}
+
+#[test]
 fn text_commands_report_matching_source_decode_failure() {
     let dir = TestDir::with_prefix("fastermod-source-error-");
     let source = dir.path().join("invalid.txt");
