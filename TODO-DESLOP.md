@@ -5,18 +5,35 @@ Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/mai
 
 ## Report
 
-Not started.
+Ground at `fda1e8fa0d1be5c8933f319d749c211b0c5f5fec`: 42 tests and
+Clippy passed on macOS arm64 with nightly `5b7b37aef`. The
+[Verification section](AGENTS.md#verification) maps interfaces to tests and
+records recent local suite times. Both Linux arm64 PR checks passed for
+[#27](https://github.com/laputa-systems/fastermod/pull/27), which changed only
+the verification documentation.
+
+The same source ran `make bench RUSTYBENCH=rustybench` with the installed
+rustybench 0.4.0 driver and the locked 0.5.0 harness. The macOS arm64 host
+passed `perf-gate-ready` before the run and `perf-gate-ready -1` after it.
+The run used one warmup and three measured passes, with 171.08s total wall
+time. Keep this as a baseline for later paired measurements. The earlier
+`benches/baseline.json` remains the configured reference.
+
+| Scenario | Run medians in ns | Allocated bytes per operation |
+| --- | --- | ---: |
+| `diff_sparse_rust_10k` | 243500, 240770, 239916 | 784300 |
+| `patch_single_1mb_file` | 13129208, 12990521, 13125854 | 476889 |
+| `replace_all_rust_10k` | 5094562, 5002500, 4998000 | 429344 |
+| `run_fast_match_100_files` | 348053750, 356039932, 341214100 | 1141731 |
+| `run_fast_no_match_100_files` | 3661417, 3488286, 3691601 | 1141729 |
+| `search_matching_1mb_file` | 122771, 83500, 123313 | 472956 |
+| `search_missing_1mb_file` | 79771, 59667, 79167 | 0 |
+
+Diagnose is next. The source revision of the modified `imara-diff`
+extraction predates the available import history.
 
 ## Tickets
 
-### DSLP-1 · P2 · Ground: baseline, boundaries, and CI test entry point
-
-- **Area:** deslop · ground
-- **Where:** AGENTS.md, Makefile, .github/workflows/
-- **Problem:** Base 64cdc84; code lines Rust 2.6k (fleet/loc/v1, vendored included); timings not yet measured. Open fleet lint findings: linux-musl-toolchain 2, binary-release-static 1, laputa-rustix 1, make-clean-target 1, owned-tool-support 1. Perf gate applies: rustybench benches/baseline.json.
-- **Recommendation:** Run the deslop Ground step. Accept: CI runs make test and is green, and AGENTS.md has a Verification section.
-- **Fix with:** deslop
-- **Effort:** S
 
 ### DSLP-2 · P2 · Diagnose: ultrareview into this backlog
 
