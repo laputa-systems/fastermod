@@ -837,3 +837,13 @@ fn zig_for_scope_rename() {
     assert_scoped_rename("zig", "fn f(items: []i32) void { const item = 1; for (items) |@item| { _ = #item; } _ = item; }\n");
     assert_scoped_rename("zig", "fn f(items: []i32) void { const @item = 1; for (items) |item| { _ = item; } _ = #item; }\n");
 }
+
+#[test]
+fn groovy_catch_exception_type_rename() {
+    assert_scoped_rename("groovy", "class @item {}\nclass C { void f() { try {} catch (#item e) {} } }\n");
+}
+
+#[test]
+fn rust_trait_self_path_import_rename() {
+    assert_scoped_rename("rs", "trait T { type @item = i32; fn f() { use Self::#item::Variant; } }\n");
+}
