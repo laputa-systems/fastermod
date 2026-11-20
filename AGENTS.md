@@ -14,10 +14,12 @@ Rust CLI for reviewing or applying regular-expression substitutions across files
 
 ## Verification
 
-- Run `make test` and `make lint`. The macOS arm64 baseline at `fda1e8f` passed 42 tests. `make test` took 26.47s from a fresh target and 5.99s warm. `make lint` took 6.57s after tests. These are local suite observations under host load. PR CI uses both entry points on Linux arm64.
+- Run `make test` and `make lint`. The macOS arm64 baseline at `fda1e8f` passed 42 tests; 49 pass now. `make test` took 26.47s from a fresh target and 5.99s warm. `make lint` took 6.57s after tests. These are local suite observations under host load. PR CI uses both entry points on Linux arm64.
+- Test tiers: selected `cargo test` case (Edit); `make test` and `make lint` (Change); hosted mutation controls (Scenario). Ground warm cost was 5.99s; adding the review case cost a median +0.09s CPU (6 interleaved pairs, ratio 1.04).
 - CLI substitution, discovery, exit codes and offline help: `tests/cli.rs`. Binding-aware renames, embedded languages, JSON edit plans, and applied file bytes: `tests/fixtures.rs` and `tests/fixtures/`.
+- Interactive review replies (y, n, default, unknown, q, end of input) on a pseudo-terminal: `tests/cli.rs::interactive_review_applies_each_reply_to_its_own_match`. Piped input never enters review.
 - Saved-plan validation and filesystem effects: `src/plan.rs` tests, including `apply_rejects_added_file_via_seen_fingerprint`.
-- Performance workload: `make bench RUSTYBENCH=rustybench` uses `benches/bench.rs` and writes `benches/baseline.json`. Use a disposable checkout to collect measurements. The [Ground report](TODO-DESLOP.md#report) records the quiet-host search, patch, replace, diff and tree traversal baseline.
+- Performance workload: `make bench RUSTYBENCH=rustybench` uses `benches/bench.rs` and writes `benches/baseline.json`. Use a disposable checkout to collect measurements. Tiered selection (`make bench-list`, `bench-check`, `bench-tier`; Full stays manual) is in [docs/bench-tiers.md](docs/bench-tiers.md). The [Ground report](https://github.com/laputa-systems/fastermod/blob/ad4cb404a42335d792f9ae54d30886df58f9fb97/TODO-DESLOP.md#report) records the quiet-host search, patch, replace, diff and tree traversal baseline.
 - `imara-histogram-diff/` is a modified extraction from [imara-diff](https://github.com/pascalkuthe/imara-diff), present since the initial commit `f9b8969`. The import history does not identify an upstream revision. `LICENSE` records the Apache-2.0 terms.
 
 ## Topics

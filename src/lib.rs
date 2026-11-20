@@ -4,10 +4,6 @@
 //! daemon, persistent index, or language-server subprocess. See
 //! docs/refactor/cli.md and docs/languages.md.
 
-// Matches the previous include!-based layout; analyzer scope structs keep
-// fields (e.g. ScopeKind) that are written for symmetry but not yet read.
-#![allow(dead_code)]
-
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 pub(crate) type Result<T> = ::std::result::Result<T, Error>;
 

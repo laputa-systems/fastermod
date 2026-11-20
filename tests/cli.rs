@@ -396,6 +396,87 @@ fn test_interactive_yes_to_all_finishes_fast() {
     }
 }
 
+/// Run fastermod with a pseudo-terminal on stdin and stdout, feed it `replies`
+/// up front, and return its exit status, terminal output and stderr.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_on_terminal(args: &[&str], replies: &str) -> (std::process::ExitStatus, String, String) {
+    use rustix::io::{FdFlags, fcntl_setfd};
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::time::{Duration, Instant};
+
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    fcntl_setfd(&master, FdFlags::CLOEXEC).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    let slave = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(std::ffi::OsStr::from_bytes(name.as_bytes()))
+        .unwrap();
+    let mut master = File::from(master);
+    master.write_all(replies.as_bytes()).unwrap();
+    let mut child = fastermod_command()
+        .args(args)
+        .stdin(Stdio::from(slave.try_clone().unwrap()))
+        .stdout(Stdio::from(slave))
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let screen = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(read @ 1..) = master.read(&mut chunk) {
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait().unwrap();
+            panic!("interactive review did not finish with replies {replies:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
+    let screen = screen.join().unwrap();
+    (output.status, screen, String::from_utf8_lossy(&output.stderr).into_owned())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn interactive_review_applies_each_reply_to_its_own_match() {
+    let source = "foo 1\nfoo 2\nfoo 3\n";
+    // One reply per line: n declines, a blank line takes the default (yes),
+    // an unknown reply is asked again, and q quits with success.
+    for (replies, expected, prompts, retries) in [
+        ("n\ny\nn\n", "foo 1\nbar 2\nfoo 3\n", 3, 0),
+        ("\nx\nn\ny\n", "bar 1\nfoo 2\nbar 3\n", 4, 1),
+        ("y\nq\n", "bar 1\nfoo 2\nfoo 3\n", 2, 0),
+    ] {
+        let dir = create_test_files(&[("a.txt", source)]);
+        let (status, screen, stderr) =
+            run_on_terminal(&["foo", "bar", dir.path().to_str().unwrap()], replies);
+        assert!(status.success(), "{replies:?}: {stderr}");
+        assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), expected, "{replies:?}");
+        assert_eq!(screen.matches("Accept change").count(), prompts, "{replies:?}: {screen}");
+        assert_eq!(screen.matches("Come again?").count(), retries, "{replies:?}: {screen}");
+    }
+
+    // Closing the terminal input (Ctrl-D) before the second reply fails the
+    // review and leaves the unanswered matches alone.
+    let dir = create_test_files(&[("a.txt", source)]);
+    let (status, _, stderr) =
+        run_on_terminal(&["foo", "bar", dir.path().to_str().unwrap()], "y\n\x04");
+    assert!(!status.success(), "a missing reply must fail");
+    assert!(stderr.contains("Unable to read user input"), "{stderr}");
+    assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "bar 1\nfoo 2\nfoo 3\n");
+}
+
 #[test]
 fn test_empty_contents() {
     let dir = create_test_files(&[("foo.txt", "foo")]);
@@ -670,4 +751,99 @@ fn help_is_complete_offline_and_has_owned_footer() {
     assert_eq!(bare.status.code(), Some(2));
     assert!(bare.stdout.is_empty());
     assert!(String::from_utf8_lossy(&bare.stderr).contains("Missing required argument <OLD>"));
+}
+
+fn assert_scoped_rename(extension: &str, marked: &str) {
+    let root = TestDir::with_prefix("fastermod-scope-");
+    let path = root.path().join(format!("input.{extension}"));
+    let at = marked.find('@').unwrap();
+    let prefix = &marked[..at];
+    let line = prefix.bytes().filter(|&b| b == b'\n').count() + 1;
+    let column = prefix.rsplit('\n').next().unwrap().len() + 1;
+    let source = marked.replace(['@', '#'], "");
+    let expected = marked.replace("@item", "renamed").replace("#item", "renamed");
+    fs::write(&path, source).unwrap();
+    let location = format!("input.{extension}:{line}:{column}");
+    let output = fastermod_command().current_dir(root.path())
+        .args(["--rename", "item", "renamed", "--at", &location, "--apply", "."])
+        .output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(path).unwrap(), expected);
+}
+
+#[test]
+fn c_compound_scope_rename() {
+    assert_scoped_rename("c", "int f(void) { int item = 1; { int @item = 2; #item++; } return item; }\n");
+    assert_scoped_rename("c", "int f(void) { int @item = 1; { int item = 2; item++; } return #item; }\n");
+}
+
+#[test]
+fn c_for_scope_rename() {
+    assert_scoped_rename("c", "int f(void) { int item = 1; for (int @item = 0; #item < 3; #item++) {} return item; }\n");
+    assert_scoped_rename("c", "int f(void) { int @item = 1; for (int item = 0; item < 3; item++) {} return #item; }\n");
+}
+
+#[test]
+fn c_struct_scope_rename() {
+    assert_scoped_rename("c", "int @item; struct S { int item; }; int f(void) { return #item; }\n");
+    assert_scoped_rename("c", "int item; struct S { int @item; }; int f(void) { return item; }\n");
+}
+
+#[test]
+fn groovy_class_scope_rename() {
+    assert_scoped_rename("groovy", "def @item = 1;\nclass C { int item; }\n#item\n");
+    assert_scoped_rename("groovy", "def item = 1;\nclass C { int @item; }\nitem\n");
+}
+
+#[test]
+fn groovy_method_scope_rename() {
+    assert_scoped_rename("groovy", "class C { int item; int f(int @item) { return #item; } int g() { return item; } }\n");
+    assert_scoped_rename("groovy", "class C { int @item; int f(int item) { return item; } int g() { return #item; } }\n");
+}
+
+#[test]
+fn groovy_closure_scope_rename() {
+    assert_scoped_rename("groovy", "def item = 1\ndef f = { def @item = 2; #item }\nitem\n");
+    assert_scoped_rename("groovy", "def @item = 1\ndef f = { def item = 2; item }\n#item\n");
+}
+
+#[test]
+fn groovy_for_scope_rename() {
+    assert_scoped_rename("groovy", "def item = 1\nfor (int @item = 0; #item < 3; #item++) {}\nitem\n");
+    assert_scoped_rename("groovy", "def @item = 1\nfor (int item = 0; item < 3; item++) {}\n#item\n");
+}
+
+
+#[test]
+fn groovy_catch_scope_rename() {
+    assert_scoped_rename("groovy", "def f() { def item = 1; try {} catch (Exception @item) { return #item; } return item; }\n");
+    assert_scoped_rename("groovy", "def f() { def @item = 1; try {} catch (Exception item) { return item; } return #item; }\n");
+}
+
+#[test]
+fn rust_trait_scope_rename() {
+    assert_scoped_rename("rs", "const item: i32 = 1; trait T { const @item: i32; fn f() -> i32 { Self::#item } } fn f() -> i32 { item }\n");
+    assert_scoped_rename("rs", "const @item: i32 = 1; trait T { const item: i32; fn f() -> i32 { Self::item } } fn f() -> i32 { #item }\n");
+}
+
+#[test]
+fn zig_block_scope_rename() {
+    assert_scoped_rename("zig", "fn f() void { const item = 1; { const @item = 2; _ = #item; } _ = item; }\n");
+    assert_scoped_rename("zig", "fn f() void { const @item = 1; { const item = 2; _ = item; } _ = #item; }\n");
+}
+
+#[test]
+fn zig_for_scope_rename() {
+    assert_scoped_rename("zig", "fn f(items: []i32) void { const item = 1; for (items) |@item| { _ = #item; } _ = item; }\n");
+    assert_scoped_rename("zig", "fn f(items: []i32) void { const @item = 1; for (items) |item| { _ = item; } _ = #item; }\n");
+}
+
+#[test]
+fn groovy_catch_exception_type_rename() {
+    assert_scoped_rename("groovy", "class @item {}\nclass C { void f() { try {} catch (#item e) {} } }\n");
+}
+
+#[test]
+fn rust_trait_self_path_import_rename() {
+    assert_scoped_rename("rs", "trait T { type @item = i32; fn f() { use Self::#item::Variant; } }\n");
 }

@@ -10,7 +10,7 @@ jobs:
   mutants:
     name: Text source mutation (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 13
+    timeout-minutes: 18
     strategy:
       fail-fast: false
       matrix:

@@ -81,16 +81,6 @@ pub(crate) struct ExportName {
     pub local: Option<usize>,
 }
 
-/// A `mod name;` declaration whose body lives in another file. The
-/// workspace layer resolves `name` to a sibling source file.
-#[derive(Clone, Debug)]
-pub(crate) struct ModDecl {
-    /// The declared module name.
-    pub name: String,
-    /// Byte range of the name token (for diagnostics/anchors).
-    pub name_range: Range<usize>,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct RefSite {
     /// Byte range of the referencing identifier token.
@@ -120,8 +110,6 @@ pub(crate) struct Analysis {
     pub imports: Vec<ImportEdge>,
     /// Local export aliases (`export { x as y }`, `export default`).
     pub exports: Vec<ExportName>,
-    /// `mod name;` declarations pending cross-file resolution.
-    pub mod_decls: Vec<ModDecl>,
     /// `true` when the analyzer's unresolved set is provably complete
     /// (oxc resolves every identifier reference it models, so an
     /// unresolved occurrence can never refer to the selected binding).

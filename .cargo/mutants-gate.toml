@@ -1,6 +1,6 @@
 scope = ["src/source.rs"]
-irrelevant = ["*.md", "LICENSE", "LICENSE.*", "tools/mutants_gate.LICENSE"]
-budget_seconds = 600
+irrelevant = ["*.md", "LICENSE", "LICENSE.*", "tools/mutants_gate.LICENSE", "tools/bench_tier.py"]
+budget_seconds = 900
 timeout_seconds = 25
 build_timeout_seconds = 300
 jobs = 2

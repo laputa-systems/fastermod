@@ -22,16 +22,7 @@ use tree_sitter::{Node, Parser};
 use crate::bind::{Analysis, BindingSite, RefSite};
 use crate::lang::LangSpec;
 
-#[derive(Clone, Copy, PartialEq)]
-enum ScopeKind {
-    Root,
-    Member,
-    Fn,
-    Block,
-}
-
 struct Scope {
-    kind: ScopeKind,
     vars: HashMap<String, usize>,
 }
 
@@ -68,7 +59,6 @@ pub(crate) fn analyze(
     let mut st = State {
         analysis: Analysis::default(),
         scopes: vec![Scope {
-            kind: ScopeKind::Root,
             vars: HashMap::new(),
         }],
         contents: contents.as_bytes(),
@@ -125,9 +115,8 @@ fn record_unresolved(st: &mut State, range: std::ops::Range<usize>) {
     });
 }
 
-fn push(st: &mut State, kind: ScopeKind) {
+fn push(st: &mut State) {
     st.scopes.push(Scope {
-        kind,
         vars: HashMap::new(),
     });
 }
@@ -143,7 +132,7 @@ fn bind_node(st: &mut State, node: Node) {
 fn walk(node: Node, st: &mut State) {
     let kind = node.kind();
     if CONTAINER_KINDS.contains(&kind) {
-        push(st, ScopeKind::Member);
+        push(st);
         walk_children(node, st);
         st.scopes.pop();
         return;
@@ -153,7 +142,7 @@ fn walk(node: Node, st: &mut State) {
             if let Some(name) = node.child_by_field_name("name") {
                 bind_node(st, name);
             }
-            push(st, ScopeKind::Fn);
+            push(st);
             // parameters > parameter name:(identifier)
             if let Some(params) = node.child_by_field_name("parameters") {
                 bind_params(st, params);
@@ -198,14 +187,14 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "block" | "block_expression" | "switch_case" => {
-            push(st, ScopeKind::Block);
+            push(st);
             walk_children(node, st);
             st.scopes.pop();
             return;
         }
         "for_statement" | "while_statement" | "if_statement" => {
             // payload captures bind, then body gets a scope.
-            push(st, ScopeKind::Block);
+            push(st);
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if !child.is_named() {

@@ -26,16 +26,7 @@ use tree_sitter::{Node, Parser};
 use crate::bind::{Analysis, BindingSite, RefSite};
 use crate::lang::LangSpec;
 
-#[derive(Clone, Copy, PartialEq)]
-enum ScopeKind {
-    Root,
-    Fn,
-    Block,
-    Member,
-}
-
 struct Scope {
-    kind: ScopeKind,
     vars: HashMap<String, usize>,
 }
 
@@ -65,7 +56,6 @@ pub(crate) fn analyze(
     let mut st = State {
         analysis: Analysis::default(),
         scopes: vec![Scope {
-            kind: ScopeKind::Root,
             vars: HashMap::new(),
         }],
         contents: contents.as_bytes(),
@@ -122,9 +112,8 @@ fn record_unresolved(st: &mut State, range: std::ops::Range<usize>) {
     });
 }
 
-fn push(st: &mut State, kind: ScopeKind) {
+fn push(st: &mut State) {
     st.scopes.push(Scope {
-        kind,
         vars: HashMap::new(),
     });
 }
@@ -232,7 +221,7 @@ fn walk(node: Node, st: &mut State) {
             if let Some(n) = name_node {
                 bind_node(st, n);
             }
-            push(st, ScopeKind::Fn);
+            push(st);
             if let Some(pl) = param_list {
                 bind_params(st, pl);
             }
@@ -257,7 +246,7 @@ fn walk(node: Node, st: &mut State) {
                     continue;
                 }
                 if child.kind() == "field_declaration_list" {
-                    push(st, ScopeKind::Member);
+                    push(st);
                     walk(child, st);
                     st.scopes.pop();
                 } else if child.id() != node.child_by_field_name("name").map(|n| n.id()).unwrap_or(0) {
@@ -294,14 +283,14 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "compound_statement" => {
-            push(st, ScopeKind::Block);
+            push(st);
             walk_children(node, st);
             st.scopes.pop();
             return;
         }
         "for_statement" => {
             // init declaration scoped to the whole loop.
-            push(st, ScopeKind::Block);
+            push(st);
             walk_children(node, st);
             st.scopes.pop();
             return;

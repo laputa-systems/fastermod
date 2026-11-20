@@ -61,3 +61,13 @@ PYTHON ?= python3
 .PHONY: mutants-diff
 mutants-diff:
 	$(PYTHON) -B tools/mutants_gate.py "$(or $(BASE),origin/main)"
+
+.PHONY: bench-check bench-list bench-tier
+bench-check:
+	$(PYTHON) -B tools/bench_tier.py check $(BENCH_ARGS)
+
+bench-list:
+	$(PYTHON) -B tools/bench_tier.py list
+
+bench-tier:
+	$(PYTHON) -B tools/bench_tier.py run $(BENCH_ARGS)
