@@ -752,3 +752,39 @@ fn help_is_complete_offline_and_has_owned_footer() {
     assert!(bare.stdout.is_empty());
     assert!(String::from_utf8_lossy(&bare.stderr).contains("Missing required argument <OLD>"));
 }
+
+fn assert_scoped_rename(extension: &str, marked: &str) {
+    let root = TestDir::with_prefix("fastermod-scope-");
+    let path = root.path().join(format!("input.{extension}"));
+    let at = marked.find('@').unwrap();
+    let prefix = &marked[..at];
+    let line = prefix.bytes().filter(|&b| b == b'\n').count() + 1;
+    let column = prefix.rsplit('\n').next().unwrap().len() + 1;
+    let source = marked.replace(['@', '#'], "");
+    let expected = marked.replace("@item", "renamed").replace("#item", "renamed");
+    fs::write(&path, source).unwrap();
+    let location = format!("input.{extension}:{line}:{column}");
+    let output = fastermod_command().current_dir(root.path())
+        .args(["--rename", "item", "renamed", "--at", &location, "--apply", "."])
+        .output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(path).unwrap(), expected);
+}
+
+#[test]
+fn c_compound_scope_rename() {
+    assert_scoped_rename("c", "int f(void) { int item = 1; { int @item = 2; #item++; } return item; }\n");
+    assert_scoped_rename("c", "int f(void) { int @item = 1; { int item = 2; item++; } return #item; }\n");
+}
+
+#[test]
+fn c_for_scope_rename() {
+    assert_scoped_rename("c", "int f(void) { int item = 1; for (int @item = 0; #item < 3; #item++) {} return item; }\n");
+    assert_scoped_rename("c", "int f(void) { int @item = 1; for (int item = 0; item < 3; item++) {} return #item; }\n");
+}
+
+#[test]
+fn c_struct_scope_rename() {
+    assert_scoped_rename("c", "int @item; struct S { int item; }; int f(void) { return #item; }\n");
+    assert_scoped_rename("c", "int item; struct S { int @item; }; int f(void) { return item; }\n");
+}
