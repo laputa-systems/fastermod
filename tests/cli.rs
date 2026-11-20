@@ -396,6 +396,87 @@ fn test_interactive_yes_to_all_finishes_fast() {
     }
 }
 
+/// Run fastermod with a pseudo-terminal on stdin and stdout, feed it `replies`
+/// up front, and return its exit status, terminal output and stderr.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn run_on_terminal(args: &[&str], replies: &str) -> (std::process::ExitStatus, String, String) {
+    use rustix::io::{FdFlags, fcntl_setfd};
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::time::{Duration, Instant};
+
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    fcntl_setfd(&master, FdFlags::CLOEXEC).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    let slave = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(std::ffi::OsStr::from_bytes(name.as_bytes()))
+        .unwrap();
+    let mut master = File::from(master);
+    master.write_all(replies.as_bytes()).unwrap();
+    let mut child = fastermod_command()
+        .args(args)
+        .stdin(Stdio::from(slave.try_clone().unwrap()))
+        .stdout(Stdio::from(slave))
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let screen = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(read @ 1..) = master.read(&mut chunk) {
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait().unwrap();
+            panic!("interactive review did not finish with replies {replies:?}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
+    let screen = screen.join().unwrap();
+    (output.status, screen, String::from_utf8_lossy(&output.stderr).into_owned())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn interactive_review_applies_each_reply_to_its_own_match() {
+    let source = "foo 1\nfoo 2\nfoo 3\n";
+    // One reply per line: n declines, a blank line takes the default (yes),
+    // an unknown reply is asked again, and q quits with success.
+    for (replies, expected, prompts, retries) in [
+        ("n\ny\nn\n", "foo 1\nbar 2\nfoo 3\n", 3, 0),
+        ("\nx\nn\ny\n", "bar 1\nfoo 2\nbar 3\n", 4, 1),
+        ("y\nq\n", "bar 1\nfoo 2\nfoo 3\n", 2, 0),
+    ] {
+        let dir = create_test_files(&[("a.txt", source)]);
+        let (status, screen, stderr) =
+            run_on_terminal(&["foo", "bar", dir.path().to_str().unwrap()], replies);
+        assert!(status.success(), "{replies:?}: {stderr}");
+        assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), expected, "{replies:?}");
+        assert_eq!(screen.matches("Accept change").count(), prompts, "{replies:?}: {screen}");
+        assert_eq!(screen.matches("Come again?").count(), retries, "{replies:?}: {screen}");
+    }
+
+    // Closing the terminal input (Ctrl-D) before the second reply fails the
+    // review and leaves the unanswered matches alone.
+    let dir = create_test_files(&[("a.txt", source)]);
+    let (status, _, stderr) =
+        run_on_terminal(&["foo", "bar", dir.path().to_str().unwrap()], "y\n\x04");
+    assert!(!status.success(), "a missing reply must fail");
+    assert!(stderr.contains("Unable to read user input"), "{stderr}");
+    assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "bar 1\nfoo 2\nfoo 3\n");
+}
+
 #[test]
 fn test_empty_contents() {
     let dir = create_test_files(&[("foo.txt", "foo")]);
