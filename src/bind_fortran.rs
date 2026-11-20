@@ -14,16 +14,7 @@ use tree_sitter::{Node, Parser};
 use crate::bind::{Analysis, BindingSite, RefSite};
 use crate::lang::LangSpec;
 
-#[derive(Clone, Copy, PartialEq)]
-enum ScopeKind {
-    /// Module/program/unit scope.
-    Unit,
-    /// Procedure body scope.
-    Proc,
-}
-
 struct Scope {
-    kind: ScopeKind,
     bindings: HashMap<String, usize>,
 }
 
@@ -53,7 +44,6 @@ pub(crate) fn analyze(
     let mut st = State {
         analysis: Analysis::default(),
         scopes: vec![Scope {
-            kind: ScopeKind::Unit,
             bindings: HashMap::new(),
         }],
         contents: contents.as_bytes(),
@@ -117,9 +107,8 @@ fn record_ref(st: &mut State, name: &str, range: std::ops::Range<usize>) {
     });
 }
 
-fn push(st: &mut State, kind: ScopeKind) {
+fn push(st: &mut State) {
     st.scopes.push(Scope {
-        kind,
         bindings: HashMap::new(),
     });
 }
@@ -182,7 +171,7 @@ fn walk(node: Node, st: &mut State) {
             if let Some(stmt) = stmt_opt {
                 proc_name_field(st, stmt);
                 // Dummy arguments: identifier children under parameters.
-                push(st, ScopeKind::Proc);
+                push(st);
                 for i in 0..stmt.child_count() {
                     let child = stmt.child(i).unwrap();
                     if stmt.field_name_for_child(i) == Some("parameters") {

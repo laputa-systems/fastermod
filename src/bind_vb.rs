@@ -12,14 +12,7 @@ use tree_sitter::{Node, Parser};
 use crate::bind::{Analysis, BindingSite, RefSite};
 use crate::lang::LangSpec;
 
-#[derive(Clone, Copy, PartialEq)]
-enum ScopeKind {
-    Program,
-    Local,
-}
-
 struct Scope {
-    kind: ScopeKind,
     bindings: HashMap<String, usize>,
 }
 
@@ -53,7 +46,6 @@ pub(crate) fn analyze(
     let mut st = State {
         analysis: Analysis::default(),
         scopes: vec![Scope {
-            kind: ScopeKind::Program,
             bindings: HashMap::new(),
         }],
         contents: contents.as_bytes(),
@@ -130,7 +122,6 @@ fn walk(node: Node, st: &mut State) {
         "method_declaration" => {
             bind_field(st, node, "name");
             st.scopes.push(Scope {
-                kind: ScopeKind::Local,
                 bindings: HashMap::new(),
             });
             if let Some(params) = node.child_by_field_name("parameters") {

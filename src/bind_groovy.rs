@@ -14,15 +14,7 @@ use tree_sitter::{Node, Parser};
 use crate::bind::{Analysis, BindingSite, RefSite};
 use crate::lang::LangSpec;
 
-#[derive(Clone, Copy, PartialEq)]
-enum ScopeKind {
-    Program,
-    Member,
-    Local,
-}
-
 struct Scope {
-    kind: ScopeKind,
     bindings: HashMap<String, usize>,
 }
 
@@ -56,7 +48,6 @@ pub(crate) fn analyze(
     let mut st = State {
         analysis: Analysis::default(),
         scopes: vec![Scope {
-            kind: ScopeKind::Program,
             bindings: HashMap::new(),
         }],
         contents: contents.as_bytes(),
@@ -119,9 +110,8 @@ fn record_unresolved(st: &mut State, range: std::ops::Range<usize>) {
     });
 }
 
-fn push(st: &mut State, kind: ScopeKind) {
+fn push(st: &mut State) {
     st.scopes.push(Scope {
-        kind,
         bindings: HashMap::new(),
     });
 }
@@ -166,7 +156,7 @@ fn walk(node: Node, st: &mut State) {
             for i in 0..node.child_count() {
                 let child = node.child(i).unwrap();
                 if child.kind() == "class_body" {
-                    push(st, ScopeKind::Member);
+                    push(st);
                     walk_children(child, st);
                     st.scopes.pop();
                     return;
@@ -182,7 +172,7 @@ fn walk(node: Node, st: &mut State) {
                 let n = text(st.contents, name);
                 bind(st, n, name.start_byte()..name.end_byte());
             }
-            push(st, ScopeKind::Local);
+            push(st);
             if let Some(params) = node.child_by_field_name("parameters") {
                 walk_params(params, st);
             }
@@ -200,7 +190,7 @@ fn walk(node: Node, st: &mut State) {
                 let n = text(st.contents, name);
                 bind(st, n, name.start_byte()..name.end_byte());
             }
-            push(st, ScopeKind::Local);
+            push(st);
             if let Some(params) = node.child_by_field_name("parameters") {
                 walk_params(params, st);
             }
@@ -215,7 +205,7 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "closure" | "block" => {
-            push(st, ScopeKind::Local);
+            push(st);
             walk_children(node, st);
             st.scopes.pop();
             return;
@@ -241,7 +231,7 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "for_statement" => {
-            push(st, ScopeKind::Local);
+            push(st);
             walk_children(node, st);
             st.scopes.pop();
             return;
@@ -260,7 +250,7 @@ fn walk(node: Node, st: &mut State) {
             return;
         }
         "catch_clause" => {
-            push(st, ScopeKind::Local);
+            push(st);
             walk_children(node, st);
             st.scopes.pop();
             return;
