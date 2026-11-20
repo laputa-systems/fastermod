@@ -59,19 +59,38 @@ read plans written by the existing serializer. The regression fails on the
 previous comparison, while the existing round-trip fixture still passes.
 The ordinary lint profile remains clean and no escape hatch was added.
 
+Tests inventory at `d99400a` (2026-11-20, macOS arm64; Linux arm64 is the hosted consumer):
+
+| Public contract / critical decision | Guard and remaining gap |
+| --- | --- |
+| Text matching, replacement, glob and ignore discovery, error exits and offline help | `tests/cli.rs`: `test_simple_replace_all`, `test_glob_matches`, `json_apply_observes_the_full_ignore_configuration`, decode, binary, permission and help cases. |
+| Identifier and binding-aware rename, embedded languages, JSON plans and applied bytes | `tests/fixtures.rs::fixture_cases` and `tests/fixtures/`; language gaps are listed in `docs/languages.md`. |
+| Saved-plan schema, edit ranges, containment, symlinks, stale read set and writes | `src/plan.rs` validation/apply tests and `tests/cli.rs::saved_plan_revalidates_the_read_set_before_writing`. Conflicting duplicate entries remain DSLP-6 (accepted P3 risk). Wider plan admission and write decisions have not been mutated. |
+| Human preview and terminal review | `src/review.rs` diff and replacement tests, `tests/cli.rs::test_interactive_yes_to_all_finishes_fast` and `plan_writes_only_the_plan_with_a_terminal_attached`. Exact interactive output and other responses are untested by a byte oracle; short terminals remain DSLP-9 (accepted P3 risk). |
+| CLI modes, status, JSON and language matrix | `tests/cli.rs`, fixture cases and `src/plan.rs` tests; see `docs/refactor/cli.md`. Not every flag combination has an independent boundary test. |
+
+The Edit tier is a selected `cargo test` case; Change is `make test` and
+`make lint` (all workspace targets), also the acceptance commands and local
+consumers. Scenario is the hosted Linux/macOS mutation gate, not ordinary
+iteration. Ground observed 5.99s warm at `fda1e8f`; current paired suite cost
+is unmeasured: historical timings on different revisions and host load are not
+a paired comparison. No new test is justified solely by the unrun regions.
+
+Mutation dispositions: source at `a4040a1` caught 7, 2 unviable, 0 misses or
+timeouts; discovery at `1468b653` caught 6, 1 unviable; read-set decisions at
+`739619d` caught 8. Discovery and read-set records do not separately state
+timeout counts; none is inferred. Unviable default replacements do not compile, rather than
+being equivalent runtime behavior. Hosted negative controls deliberately left
+warning and uncovered-branch survivors; these demonstrate the gate rather than
+unresolved product mutants. No equivalent survivors are claimed. Wider saved-plan
+and terminal review mutations were not run (advisory); coverage and branch
+percentages are unmeasured because `cargo-llvm-cov` is unavailable locally.
+The retained source mutation CI selection and its hosted controls are documented
+in `docs/deslop-source-tests.md`; no scope expansion. Needs environment: rerun
+coverage and supported Linux ARM64 checks there; macOS ARM64 is the local shape.
+Other platforms have not been qualified. Existing suite flake rate is unmeasured.
+
 ## Tickets
-
-
-
-
-### DSLP-4 · P2 · Tests: coverage, boundary gaps, mutation
-
-- **Area:** deslop · tests
-- **Where:** src/source.rs, src/discovery.rs, src/review.rs, saved-plan admission, CLI tests and hosted CI
-- **Problem:** docs/deslop-source-tests.md records the source warning, search and binary decisions. All seven viable identities were caught. The remaining discovery, plan and review paths and the retained whole-change gate still need coverage.
-- **Recommendation:** Exercise real text discovery, saved-plan rejection and review output at the CLI. Verify the related consumers, critical scope, hosted negative controls and paired suite cost before closing.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-5 · P2 · Dead code: tools and debloat
 
@@ -82,11 +101,6 @@ The ordinary lint profile remains clean and no escape hatch was added.
 - **Fix with:** deslop
 - **Effort:** M
 
-
-
-
-
-
 ### DSLP-6 · P3 · Saved plans apply conflicting entries for one file
 
 - **Area:** fastermod · saved plans
@@ -95,7 +109,6 @@ The ordinary lint profile remains clean and no escape hatch was added.
 - **Recommendation:** Reject duplicate target entries before any write. Keep the accepted plan format and add a CLI fixture that checks the failure status and the input file's original bytes.
 - **Fix with:** durable-state
 - **Effort:** S
-
 
 ### DSLP-9 · P3 · Short terminals underflow the preview height budget
 
