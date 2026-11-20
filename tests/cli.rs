@@ -819,3 +819,9 @@ fn groovy_catch_scope_rename() {
     assert_scoped_rename("groovy", "def f() { def item = 1; try {} catch (Exception @item) { return #item; } return item; }\n");
     assert_scoped_rename("groovy", "def f() { def @item = 1; try {} catch (Exception item) { return item; } return #item; }\n");
 }
+
+#[test]
+fn rust_trait_scope_rename() {
+    assert_scoped_rename("rs", "const item: i32 = 1; trait T { const @item: i32; fn f() -> i32 { Self::#item } } fn f() -> i32 { item }\n");
+    assert_scoped_rename("rs", "const @item: i32 = 1; trait T { const item: i32; fn f() -> i32 { Self::item } } fn f() -> i32 { #item }\n");
+}

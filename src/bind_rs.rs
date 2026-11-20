@@ -610,9 +610,15 @@ fn walk_path(
     emit_path_edge: bool,
 ) -> Option<usize> {
     let segments = path_segments(node);
+    let trait_self = segments.first().and_then(|seg| {
+        (text(st.contents, *seg) == "Self")
+            .then(|| nearest_scope_of_kind(st, ScopeKind::Trait))
+            .flatten()
+    });
     let ident_count = segments
         .iter()
-        .filter(|s| is_ident_kind(s.kind()))
+        .enumerate()
+        .filter(|(i, s)| is_ident_kind(s.kind()) && !(*i == 0 && trait_self.is_some()))
         .count();
     let mut seen_idents = 0;
     let mut scope: Option<usize> = base;
@@ -625,8 +631,13 @@ fn walk_path(
     let mut first_binding: Option<usize> = None;
     let mut last_ident: Option<Node> = None;
     let mut last_target: Option<usize> = None;
-    for seg in segments.iter() {
+    for (segment_index, seg) in segments.iter().enumerate() {
         if !seg.is_named() {
+            continue;
+        }
+        if segment_index == 0 && trait_self.is_some() {
+            scope = trait_self;
+            anchored = true;
             continue;
         }
         match seg.kind() {
@@ -665,9 +676,13 @@ fn walk_path(
         let range = seg.start_byte()..seg.end_byte();
         let (target, remote) = if first_real {
             first_real = false;
-            first_binding = target_hint(st, scope, &name);
             let from = scope.unwrap_or_else(|| cur_scope(st));
-            let t = resolve(st, &name, from);
+            let t = if trait_self.is_some() {
+                st.arena[from].bindings.get(&name).copied()
+            } else {
+                resolve(st, &name, from)
+            };
+            first_binding = t;
             anchored = anchored || t.is_some();
             (t, false)
         } else {
@@ -729,13 +744,6 @@ fn walk_path(
         }
     }
     last_inner
-}
-
-/// Resolve the first path segment without consuming scope state — used
-/// only to decide whether an unresolved tail looks module-rooted.
-fn target_hint(st: &State, scope: Option<usize>, name: &str) -> Option<usize> {
-    let from = scope.unwrap_or_else(|| cur_scope(st));
-    resolve(st, name, from)
 }
 
 fn nearest_scope_of_kind(st: &State, kind: ScopeKind) -> Option<usize> {
