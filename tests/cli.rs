@@ -825,3 +825,15 @@ fn rust_trait_scope_rename() {
     assert_scoped_rename("rs", "const item: i32 = 1; trait T { const @item: i32; fn f() -> i32 { Self::#item } } fn f() -> i32 { item }\n");
     assert_scoped_rename("rs", "const @item: i32 = 1; trait T { const item: i32; fn f() -> i32 { Self::item } } fn f() -> i32 { #item }\n");
 }
+
+#[test]
+fn zig_block_scope_rename() {
+    assert_scoped_rename("zig", "fn f() void { const item = 1; { const @item = 2; _ = #item; } _ = item; }\n");
+    assert_scoped_rename("zig", "fn f() void { const @item = 1; { const item = 2; _ = item; } _ = #item; }\n");
+}
+
+#[test]
+fn zig_for_scope_rename() {
+    assert_scoped_rename("zig", "fn f(items: []i32) void { const item = 1; for (items) |@item| { _ = #item; } _ = item; }\n");
+    assert_scoped_rename("zig", "fn f(items: []i32) void { const @item = 1; for (items) |item| { _ = item; } _ = #item; }\n");
+}
