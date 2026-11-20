@@ -788,3 +788,28 @@ fn c_struct_scope_rename() {
     assert_scoped_rename("c", "int @item; struct S { int item; }; int f(void) { return #item; }\n");
     assert_scoped_rename("c", "int item; struct S { int @item; }; int f(void) { return item; }\n");
 }
+
+#[test]
+fn groovy_class_scope_rename() {
+    assert_scoped_rename("groovy", "def @item = 1;\nclass C { int item; }\n#item\n");
+    assert_scoped_rename("groovy", "def item = 1;\nclass C { int @item; }\nitem\n");
+}
+
+#[test]
+fn groovy_method_scope_rename() {
+    assert_scoped_rename("groovy", "class C { int item; int f(int @item) { return #item; } int g() { return item; } }\n");
+    assert_scoped_rename("groovy", "class C { int @item; int f(int item) { return item; } int g() { return #item; } }\n");
+}
+
+#[test]
+fn groovy_closure_scope_rename() {
+    assert_scoped_rename("groovy", "def item = 1\ndef f = { def @item = 2; #item }\nitem\n");
+    assert_scoped_rename("groovy", "def @item = 1\ndef f = { def item = 2; item }\n#item\n");
+}
+
+#[test]
+fn groovy_for_scope_rename() {
+    assert_scoped_rename("groovy", "def item = 1\nfor (int @item = 0; #item < 3; #item++) {}\nitem\n");
+    assert_scoped_rename("groovy", "def @item = 1\nfor (int item = 0; item < 3; item++) {}\n#item\n");
+}
+
