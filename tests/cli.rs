@@ -813,3 +813,9 @@ fn groovy_for_scope_rename() {
     assert_scoped_rename("groovy", "def @item = 1\nfor (int item = 0; item < 3; item++) {}\n#item\n");
 }
 
+
+#[test]
+fn groovy_catch_scope_rename() {
+    assert_scoped_rename("groovy", "def f() { def item = 1; try {} catch (Exception @item) { return #item; } return item; }\n");
+    assert_scoped_rename("groovy", "def f() { def @item = 1; try {} catch (Exception item) { return item; } return #item; }\n");
+}

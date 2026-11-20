@@ -255,6 +255,18 @@ fn walk(node: Node, st: &mut State) {
             st.scopes.pop();
             return;
         }
+        "catch_formal_parameter" => {
+            for i in 0..node.child_count() {
+                let child = node.child(i).unwrap();
+                if node.field_name_for_child(i) == Some("name") && is_name_kind(child.kind()) {
+                    let name = text(st.contents, child);
+                    bind(st, name, child.start_byte()..child.end_byte());
+                } else {
+                    walk(child, st);
+                }
+            }
+            return;
+        }
         "method_invocation" => {
             // `name(args)` or `obj.name(args)`: the invoked name resolves
             // as a plain identifier; object/field parts are member access.
