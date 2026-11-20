@@ -13,7 +13,7 @@ use std::ops::Range;
 
 use tree_sitter::{Node, Parser};
 
-use crate::bind::{Analysis, BindingSite, Expansion, ImportEdge, ModDecl, RefSite};
+use crate::bind::{Analysis, BindingSite, Expansion, ImportEdge, RefSite};
 use crate::lang::LangSpec;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -201,14 +201,6 @@ fn walk(node: Node, st: &mut State) {
             }
         }
         "mod_item" => {
-            if node.child_by_field_name("body").is_none()
-                && let Some(name) = item_name(node)
-            {
-                st.analysis.mod_decls.push(ModDecl {
-                    name: text(st.contents, name).to_string(),
-                    name_range: name.start_byte()..name.end_byte(),
-                });
-            }
             if let Some(body) = node.child_by_field_name("body") {
                 let inner = push_scope(st, ScopeKind::Module);
                 link_inner_scope(st, node, inner);

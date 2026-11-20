@@ -66,7 +66,8 @@ Tests inventory at `d99400a` (2026-11-20, macOS arm64; Linux arm64 is the hosted
 | Text matching, replacement, glob and ignore discovery, error exits and offline help | `tests/cli.rs`: `test_simple_replace_all`, `test_glob_matches`, `json_apply_observes_the_full_ignore_configuration`, decode, binary, permission and help cases. |
 | Identifier and binding-aware rename, embedded languages, JSON plans and applied bytes | `tests/fixtures.rs::fixture_cases` and `tests/fixtures/`; language gaps are listed in `docs/languages.md`. |
 | Saved-plan schema, edit ranges, containment, symlinks, stale read set and writes | `src/plan.rs` validation/apply tests and `tests/cli.rs::saved_plan_revalidates_the_read_set_before_writing`. Conflicting duplicate entries remain DSLP-6 (accepted P3 risk). Wider plan admission and write decisions have not been mutated. |
-| Human preview and terminal review | `src/review.rs` diff and replacement tests, `tests/cli.rs::test_interactive_yes_to_all_finishes_fast` and `plan_writes_only_the_plan_with_a_terminal_attached`. Exact interactive output and other responses are untested by a byte oracle; short terminals remain DSLP-9 (accepted P3 risk). |
+| Human preview and terminal review | `src/review.rs` diff and replacement tests and `tests/cli.rs::plan_writes_only_the_plan_with_a_terminal_attached`. The similarly named `test_interactive_yes_to_all_finishes_fast` uses `--accept-all`, so it does not guard interactive review. Exact interactive output and responses are untested by a byte oracle; short terminals remain DSLP-9 (accepted P3 risk). |
+| Public Rust `run()` and `benchmark` helpers | `src/main.rs` calls `run()` and the CLI and fixture tests exercise it; `benches/bench.rs` consumes the helpers. Their direct API is not independently tested. |
 | CLI modes, status, JSON and language matrix | `tests/cli.rs`, fixture cases and `src/plan.rs` tests; see `docs/refactor/cli.md`. Not every flag combination has an independent boundary test. |
 
 The Edit tier is a selected `cargo test` case; Change is `make test` and
@@ -90,16 +91,23 @@ in `docs/deslop-source-tests.md`; no scope expansion. Needs environment: rerun
 coverage and supported Linux ARM64 checks there; macOS ARM64 is the local shape.
 Other platforms have not been qualified. Existing suite flake rate is unmeasured.
 
+Dead code: on macOS arm64, `cargo rustc --lib -- --force-warn dead_code
+--force-warn unreachable_pub` exited 0 and reported six unread field groups and
+eight visibility warnings. The Rust `ModDecl` vector had no readers; its record
+and constructor were removed. `rename.rs` registers the Rust analyzer and
+`tests/fixtures.rs` runs Rust rename and workspace fixtures. The unused fixture
+`OsStr` placeholder was also removed. The forced scan overrides the existing
+crate-wide suppression. Two groups are retained: the five unread scope-kind tags
+in C, Groovy, VB, Fortran and Zig preserve the existing analyzer structure;
+and eight `unreachable_pub` warnings are live internal methods, schema constant
+and terminal functions within private modules. Linux and other platform builds
+were not locally checked. `cargo-machete` and `cargo-udeps` are unavailable
+(Needs environment); no dependency was removed. Debloat traced the shared
+plan tail: syntax apply reaches it, despite a contrary comment, so it remains.
+No walk-back was identified. The Rust analyzer is outside the seven declared
+text-workload paths.
+
 ## Tickets
-
-### DSLP-5 · P2 · Dead code: tools and debloat
-
-- **Area:** deslop · dead code
-- **Where:** whole repository
-- **Problem:** No dead-code scan has run.
-- **Recommendation:** Run the deslop Dead code step. Accept: tools clean or allowlisted with reasons; walk-backs filed as Needs owner tickets.
-- **Fix with:** deslop
-- **Effort:** M
 
 ### DSLP-6 · P3 · Saved plans apply conflicting entries for one file
 

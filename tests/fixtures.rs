@@ -14,7 +14,6 @@
 //! Directories starting with `.` or `_` are skipped, so shared helpers can
 //! live beside the cases.
 
-use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -198,8 +197,3 @@ fn fixture_cases() {
         run_case(case);
     }
 }
-
-// Keep OsStr referenced so fixture names with non-UTF8 paths could be added
-// without a signature change.
-#[allow(dead_code)]
-fn _unused(_: &OsStr) {}
