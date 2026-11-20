@@ -1,5 +1,5 @@
 Prefix: DSLP
-Next: 10
+Next: 12
 
 Deslop campaign backlog ([plan](https://github.com/laputa-systems/stuff/blob/main/docs/campaigns/deslop.md), tier Calibration). One agent works this file with the `deslop` skill: take the lowest-numbered open ticket whose area does not start with `Needs owner ·`. After DSLP-5, work the open P1 and P2 findings, then fill in `## Report` below.
 
@@ -65,17 +65,38 @@ Tests inventory at `d99400a` (2026-11-20, macOS arm64; Linux arm64 is the hosted
 | --- | --- |
 | Text matching, replacement, glob and ignore discovery, error exits and offline help | `tests/cli.rs`: `test_simple_replace_all`, `test_glob_matches`, `json_apply_observes_the_full_ignore_configuration`, decode, binary, permission and help cases. |
 | Identifier and binding-aware rename, embedded languages, JSON plans and applied bytes | `tests/fixtures.rs::fixture_cases` and `tests/fixtures/`; language gaps are listed in `docs/languages.md`. |
-| Saved-plan schema, edit ranges, containment, symlinks, stale read set and writes | `src/plan.rs` validation/apply tests and `tests/cli.rs::saved_plan_revalidates_the_read_set_before_writing`. Conflicting duplicate entries remain DSLP-6 (accepted P3 risk). Wider plan admission and write decisions have not been mutated. |
-| Human preview and terminal review | `src/review.rs` diff and replacement tests and `tests/cli.rs::plan_writes_only_the_plan_with_a_terminal_attached`. The similarly named `test_interactive_yes_to_all_finishes_fast` uses `--accept-all`, so it does not guard interactive review. Exact interactive output and responses are untested by a byte oracle; short terminals remain DSLP-9 (accepted P3 risk). |
+| Saved-plan schema, edit ranges, containment, symlinks, stale read set and writes | `src/plan.rs` validation/apply tests and `tests/cli.rs::saved_plan_revalidates_the_read_set_before_writing`. Conflicting duplicate entries remain DSLP-6 (accepted P3 risk). Wider admission and write decisions are guarded by the unit tests listed in the disposition below. |
+| Human preview and terminal review | `src/review.rs` diff and replacement tests, `tests/cli.rs::interactive_review_applies_each_reply_to_its_own_match` (added in this pass: n, default, unknown, q and end-of-input replies on a pseudo-terminal, file bytes and prompt counts) and `plan_writes_only_the_plan_with_a_terminal_attached`. The similarly named `test_interactive_yes_to_all_finishes_fast` uses `--accept-all`, so it does not guard review. The exact rendered diff and editor (`e`, `E`) replies stay untested by a byte oracle (advisory); short terminals remain DSLP-9 (accepted P3 risk). |
 | Public Rust `run()` and `benchmark` helpers | `src/main.rs` calls `run()` and the CLI and fixture tests exercise it; `benches/bench.rs` consumes the helpers. Their direct API is not independently tested. |
 | CLI modes, status, JSON and language matrix | `tests/cli.rs`, fixture cases and `src/plan.rs` tests; see `docs/refactor/cli.md`. Not every flag combination has an independent boundary test. |
 
 The Edit tier is a selected `cargo test` case; Change is `make test` and
 `make lint` (all workspace targets), also the acceptance commands and local
 consumers. Scenario is the hosted Linux/macOS mutation gate, not ordinary
-iteration. Ground observed 5.99s warm at `fda1e8f`; current paired suite cost
-is unmeasured: historical timings on different revisions and host load are not
-a paired comparison. No new test is justified solely by the unrun regions.
+iteration.
+
+Remaining roadmap items, dispositioned (2026-11-20, macOS arm64):
+
+- Review output: one demonstrated gap, that no test sent a reply on a terminal
+  (piped input never enters review), so the choice between writing and
+  declining a match was unguarded. The new pseudo-terminal case closes it.
+  Proof: making the `n` reply save the match fails it (`left: "bar 1\nbar 2\nbar
+  3\n"`, `right: "foo 1\nbar 2\nfoo 3\n"`); the file was restored byte for byte
+  (`cmp`) and the case passes. The rendered diff text and editor replies are
+  not asserted byte for byte: accepted, advisory.
+- Wider plan decisions: `validate` and `apply` already have unit cases for
+  ordering, bounds, UTF-8 boundaries, parent paths, schema, containment,
+  symlinks, staleness, partial failure and read-set drift. One hand-injected
+  fault (`byte_start < prev_end` changed to `<=` in `validate`) failed 8 plan
+  tests and was restored byte for byte, so no test was added. A mutation run
+  of `apply_excluding` was not possible: `cargo-mutants` is not installed here
+  (Needs environment); the retained hosted lanes are unchanged.
+- Paired suite cost: six interleaved pairs of the three compiled debug test
+  binaries (unit, `cli`, `fixtures`), baseline running `cli` with the new case
+  skipped, candidate running it, measured in user plus system CPU on a busy
+  host (load 13 to 35). Medians: 2.20s baseline, +0.09s, ratio 1.04 (pairs
+  0.99 to 1.21), well inside 20% or 30s. The Ground warm figure of 5.99s was
+  taken on a different revision and host load and is not compared.
 
 Mutation dispositions: source at `a4040a1` caught 7, 2 unviable, 0 misses or
 timeouts; discovery at `1468b653` caught 6, 1 unviable; read-set decisions at
@@ -93,19 +114,70 @@ Other platforms have not been qualified. Existing suite flake rate is unmeasured
 
 Dead code: on macOS arm64, `cargo rustc --lib -- --force-warn dead_code
 --force-warn unreachable_pub` exited 0 and reported six unread field groups and
-eight visibility warnings. The Rust `ModDecl` vector had no readers; its record
-and constructor were removed. `rename.rs` registers the Rust analyzer and
-`tests/fixtures.rs` runs Rust rename and workspace fixtures. The unused fixture
-`OsStr` placeholder was also removed. The forced scan overrides the existing
-crate-wide suppression. Two groups are retained: the five unread scope-kind tags
-in C, Groovy, VB, Fortran and Zig preserve the existing analyzer structure;
-and eight `unreachable_pub` warnings are live internal methods, schema constant
-and terminal functions within private modules. Linux and other platform builds
-were not locally checked. `cargo-machete` and `cargo-udeps` are unavailable
-(Needs environment); no dependency was removed. Debloat traced the shared
-plan tail: syntax apply reaches it, despite a contrary comment, so it remains.
-No walk-back was identified. The Rust analyzer is outside the seven declared
-text-workload paths.
+eight visibility warnings. Removed: the Rust `ModDecl` vector (no readers; its
+record and constructor), the unused fixture `OsStr` placeholder, and the unread
+`kind` field with its `ScopeKind` enum in the C, Groovy, VB, Fortran and Zig
+analyzers. Their only consumers are the fixture cases `ident-c`, `ident-groovy`,
+`ident-vb-dotnet`, `ident-fortran`, `ident-zig`; they
+pass. With the last unread item gone, the crate-wide `#![allow(dead_code)]` in
+`src/lib.rs` (its comment named exactly those fields) was removed, so the
+compiler guards the crate again; the same scan now reports only
+`unreachable_pub`, and `make lint` (clippy over all targets and features)
+stays clean. Allowlist (one entry): `unreachable_pub` on eight items, `Color`
+and the terminal functions, `plan.rs:18`, `bind.rs:125,139`; they are live
+items in private modules and the lint is a visibility preference outside the
+project's lint profile, so narrowing them removes no code. Linux and other
+platform builds were not locally checked. `cargo-machete` and `cargo-udeps`
+are unavailable (Needs environment); no dependency was removed. Debloat traced
+the shared plan tail: syntax apply reaches it, despite a contrary comment, so
+it remains. No walk-back was identified: no flag, saved-plan field or output
+changed. The removed code is outside the seven declared text-workload paths
+(`src/diff.rs`, source reading, replacement and tree walks), so no paired
+timing was owed and none is claimed.
+
+Bench audit (2026-11-20): the seven `benches/bench.rs` workloads cover
+search hit/miss, replacement, sparse diff, patch and 100-file tree walks with
+generated inputs. They use wall time and allocator counters; tree counters
+exclude worker allocations. They do not independently assert complete outputs,
+cover CLI startup, saved-plan or semantic rename, or provide process-tree CPU
+and I/O attribution. The historical baseline has three measured passes and is
+not an interleaved comparison; the five-pair text-source comparison is recorded
+separately in `docs/deslop-text-source-perf.md`. DSLP-10 ranks those coverage and
+attribution gaps; DSLP-11 records preflight, comparison and reporting gaps.
+`docs/bench-tiers.md` describes the entrypoint: `make bench-list`,
+`bench-check`, `bench-tier` (Edit by default; Change with `--tier change`
+and `--name`, `--area`, `--skip`). Full remains the explicit `make bench`
+command and was never run.
+
+Entrypoint proof: Edit (`make bench-tier`) exited 0 in 0.20s with the selection
+self-test. Selection checks: an unknown name and an empty selection each exit 2
+with a named reason and no run directory. With `cargo` missing from `PATH` the
+Change preflight exits 2 naming the tool and nothing ran; `--dry-run` prints the
+command and creates no run directory. One Change workload,
+`search_missing_1mb_file`, ran end to end through `cpu-guard`: exit 0, the
+release-profile build took 7m44s on a busy host (the first build took 20m51s),
+and the output has one sample of 224.7 us with 1 allocation of 16 B. It is
+completion evidence only; no timing verdict follows from one sample. The other
+six workloads and Scenario were not run.
+
+Review of the cumulative diff from `d99400a` (docs, ten source and test files,
+the bench entrypoint) found no demonstrated defect to fix. Checked: the removed
+`ModDecl` and `kind` items have no reader (the compiler, now without the crate
+`dead_code` allow, proves it); no CLI flag, saved-plan field or exit code
+changed; the review test writes only inside its own temporary directories
+and bounds the child at 10s. Residual risks: the pseudo-terminal case ran on
+macOS arm64 only (the Linux arm64 PR check is its first run there, where the
+master read ends with an I/O error rather than end of file, which the reader
+loop treats as the end); no change touched a declared performance workload, so
+no paired timing was owed. The Edit tier's over-strict tool check is in DSLP-11.
+
+Summary of this pass. Closed: DSLP-4 (Tests) and DSLP-5 (Dead code); the Bench
+step produced the entrypoint and its proof but no ticket of its own. Filed:
+DSLP-10 and DSLP-11 (P3). Open: DSLP-6, DSLP-9, DSLP-10, DSLP-11, all P3. No P1
+or P2 finding and no `Needs owner ·` item is open. No gap in the shared fleet
+files was found. Needs environment: `cargo-mutants`, `cargo-llvm-cov`,
+`cargo-machete` and `cargo-udeps` are not installed locally, and Linux
+builds and tests were not run locally.
 
 ## Tickets
 
@@ -126,4 +198,22 @@ text-workload paths.
 - **Recommendation:** Saturate the terminal-height budget with a narrow-terminal test that still prints the changed lines.
 - **Fix with:** os-boundaries
 - **Effort:** S
+
+### DSLP-10 · P3 · Benchmark end-to-end codemod journeys and attribution
+
+- **Area:** fastermod · benchmarks
+- **Where:** benches/bench.rs, tools/bench_tier.py
+- **Problem:** The seven generated Rust workloads measure internal search, replacement, diff, patch and tree walks, not complete CLI startup, binding-aware rename, interactive review or saved-plan journeys. Tree-walk allocation accounting excludes worker threads; no CPU or I/O attribution is captured. Their black-box calls do not assert complete output bytes.
+- **Recommendation:** Add representative CLI journeys with output and completed-work oracles, and separate process-tree CPU, allocation and I/O attribution from timed runs. Qualify comparisons under the host gate.
+- **Fix with:** bench-pyramid
+- **Effort:** M
+
+### DSLP-11 · P3 · Strengthen benchmark preflight and comparison reporting
+
+- **Area:** fastermod · benchmarks
+- **Where:** tools/bench_tier.py
+- **Problem:** The tier driver checks local tools and free space but does not validate tool versions, host readiness, stale inputs, leftover processes or paired comparison budgets. The Edit tier demands cargo, rustc and cpu-guard although its self-test needs only Python, and the run summary has no per-workload timing validity. A Change run is completion evidence only.
+- **Recommendation:** Add selected-workload preflight and paired scenario reporting with explicit timing validity and exclusions, retaining manual-only Full.
+- **Fix with:** bench-pyramid
+- **Effort:** M
 
