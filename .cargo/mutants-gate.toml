@@ -1,4 +1,5 @@
 scope = ["src/source.rs"]
+critical = ' in (run_rename|run_workspace|verify_rename|assemble_plan|validate|apply_excluding|load|fingerprint_read_set|seen_fingerprint)$'
 irrelevant = ["*.md", "LICENSE", "LICENSE.*", "tools/mutants_gate.LICENSE", "tools/bench_tier.py"]
 budget_seconds = 900
 timeout_seconds = 25
