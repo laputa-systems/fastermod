@@ -14,6 +14,8 @@ Rust CLI for reviewing or applying regular-expression substitutions across files
 
 ## Verification
 
+`make clean` removes the checkout's ordinary `./target` directory. It refuses a file or symlink at that path.
+
 - Run `make test` and `make lint`. The macOS arm64 baseline at `fda1e8f` passed 42 tests; 49 pass now. `make test` took 26.47s from a fresh target and 5.99s warm. `make lint` took 6.57s after tests. These are local suite observations under host load. PR CI uses both entry points on Linux arm64.
 - Test tiers: selected `cargo test` case (Edit); `make test` and `make lint` (Change); hosted mutation controls (Scenario). Ground warm cost was 5.99s; adding the review case cost a median +0.09s CPU (6 interleaved pairs, ratio 1.04).
 - CLI substitution, discovery, exit codes and offline help: `tests/cli.rs`. Binding-aware renames, embedded languages, JSON edit plans, and applied file bytes: `tests/fixtures.rs` and `tests/fixtures/`.
