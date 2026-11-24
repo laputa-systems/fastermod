@@ -13,8 +13,10 @@ run proves completion only, not a performance verdict. The first release-profile
 build can take minutes; warm cost is workload dependent.
 
 `make bench RUSTYBENCH=rustybench` remains the explicit manual full baseline;
-do not invoke it as a prerequisite. For comparative timing use the documented
-paired workload and host gate in `AGENTS.md` and `docs/deslop-text-source-perf.md`.
-The tier driver reports host readiness as a reminder; its one sample is not a
-quiet-host gate. All fixtures are generated in the benchmark process; set
+do not invoke it as a prerequisite. For comparative timing, build both
+revisions before measurement, alternate their run order, and check
+`perf-gate-ready` before and `perf-gate-ready -1` after each sample. Discard
+samples that overlap host load. The tier driver reports host readiness as a
+reminder; its one sample is not a quiet-host gate. All fixtures are generated
+in the benchmark process; set
 `TMPDIR="$PWD/.work/tmp"` before running.
