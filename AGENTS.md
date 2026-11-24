@@ -2,6 +2,8 @@
 
 Rust CLI for reviewing or applying regular-expression substitutions across files.
 
+The roadmap, [docs/roadmap.md](docs/roadmap.md), holds all current and future work; its Status is the resume point.
+
 ## Commands
 
 - Build: `make build`; test: `make test`; check: `cargo check --workspace`.
