@@ -51,8 +51,13 @@ impl CountingAlloc {
 }
 
 #[cfg(unix)]
+// SAFETY: every operation delegates to the same `AllocProfiler`, which upholds
+// GlobalAlloc's non-null, alignment and paired-deallocation contract. The
+// relaxed counters do not affect the returned pointer or allocator correctness.
 unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: `layout` is the caller's valid layout and `inner` is the
+        // allocator that will receive the matching deallocation.
         let ptr = unsafe { self.inner.alloc(layout) };
         if !ptr.is_null() {
             self.allocations.fetch_add(1, Ordering::Relaxed);
@@ -63,6 +68,8 @@ unsafe impl GlobalAlloc for CountingAlloc {
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: `layout` is the caller's valid layout and `inner` is the
+        // allocator that will receive the matching deallocation.
         let ptr = unsafe { self.inner.alloc_zeroed(layout) };
         if !ptr.is_null() {
             self.allocations.fetch_add(1, Ordering::Relaxed);
@@ -73,10 +80,14 @@ unsafe impl GlobalAlloc for CountingAlloc {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: `ptr` came from this allocator's alloc/realloc and `layout`
+        // is the layout it was allocated with.
         unsafe { self.inner.dealloc(ptr, layout) }
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: `ptr` and `layout` describe a live block from `inner`, and
+        // a non-null result belongs to the same allocator.
         let new = unsafe { self.inner.realloc(ptr, layout, new_size) };
         if !new.is_null() {
             self.allocations.fetch_add(1, Ordering::Relaxed);
@@ -462,6 +473,9 @@ fn cli_review_journey() -> Journey {
                 .stdin(std::process::Stdio::from(slave.try_clone().unwrap()))
                 .stdout(std::process::Stdio::from(slave))
                 .stderr(std::process::Stdio::piped());
+            // SAFETY: the closure runs after fork but before exec and only
+            // performs the raw `setsid` and `TIOCSCTTY` syscalls; it allocates
+            // nothing, takes no locks, and owns its descriptor.
             unsafe {
                 command.pre_exec(move || {
                     setsid()?;
@@ -480,7 +494,12 @@ fn cli_review_journey() -> Journey {
             });
             let deadline = Instant::now() + Duration::from_secs(10);
             while child.try_wait().unwrap().is_none() {
-                assert!(Instant::now() < deadline, "interactive review timed out");
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = screen.join();
+                    panic!("interactive review timed out");
+                }
                 std::thread::sleep(Duration::from_millis(10));
             }
             let output = child.wait_with_output().unwrap();
@@ -552,7 +571,7 @@ struct Usage {
 
 #[cfg(unix)]
 unsafe extern "C" {
-    fn getrusage(who: i32, usage: *mut Usage) -> i32;
+    safe fn getrusage(who: i32, usage: *mut Usage) -> i32;
 }
 
 #[cfg(unix)]
@@ -564,13 +583,13 @@ const RUSAGE_CHILDREN: i32 = -1;
 impl Usage {
     fn read(who: i32) -> Self {
         let mut usage = Self::default();
-        assert_eq!(unsafe { getrusage(who, &mut usage) }, 0, "getrusage");
+        assert_eq!(getrusage(who, &mut usage), 0, "getrusage");
         usage
     }
 
     fn cpu_ms(&self) -> u64 {
         let seconds = self.utime_sec.saturating_add(self.stime_sec);
-        let micros = self.utime_usec.saturating_add(self.stime_usec);
+        let micros = (self.utime_usec & 0xffff_ffff).saturating_add(self.stime_usec & 0xffff_ffff);
         seconds.saturating_mul(1000).saturating_add(micros / 1000)
     }
 }
@@ -629,8 +648,8 @@ fn attribution_record(name: &str, before: Snapshot, after: Snapshot, output: &[u
         "io_read_bytes": after.io.0.saturating_sub(before.io.0),
         "io_write_bytes": after.io.1.saturating_sub(before.io.1),
         "io_bytes_scope": if cfg!(target_os = "linux") { "process bytes" } else { "unavailable" },
-        "children_block_reads": after.children.inblock - before.children.inblock,
-        "children_block_writes": after.children.oublock - before.children.oublock,
+        "children_block_reads": after.children.inblock.saturating_sub(before.children.inblock),
+        "children_block_writes": after.children.oublock.saturating_sub(before.children.oublock),
     })
     .to_string()
 }

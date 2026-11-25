@@ -590,6 +590,9 @@ fn review_on_a_narrow_terminal_still_prints_the_changed_lines() {
         .stdin(Stdio::from(slave.try_clone().unwrap()))
         .stdout(Stdio::from(slave))
         .stderr(Stdio::piped());
+    // SAFETY: the closure runs after fork but before exec and only performs
+    // the raw `setsid` and `TIOCSCTTY` syscalls; it allocates nothing, takes
+    // no locks, and owns its descriptor.
     unsafe {
         command.pre_exec(move || {
             setsid()?;
@@ -611,6 +614,7 @@ fn review_on_a_narrow_terminal_still_prints_the_changed_lines() {
         if Instant::now() >= deadline {
             let _ = child.kill();
             child.wait().unwrap();
+            let _ = screen.join();
             panic!("narrow-terminal review did not finish");
         }
         std::thread::sleep(Duration::from_millis(10));

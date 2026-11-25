@@ -112,20 +112,36 @@ def stale_inputs():
     return [str(p.relative_to(ROOT)) for p in sources if p.is_file() and p.stat().st_mtime > built]
 
 
-def leftover_processes():
+def process_table():
+    proc = pathlib.Path('/proc')
+    if proc.is_dir():
+        rows = []
+        for entry in proc.glob('[0-9]*'):
+            try:
+                args = (entry / 'cmdline').read_bytes().replace(b'\0', b' ').decode()
+            except OSError:
+                continue
+            rows.append((int(entry.name), args))
+        return rows
     result = subprocess.run(['ps', '-eo', 'pid=,args='], capture_output=True, text=True)
-    current = {os.getpid(), os.getppid()}
-    found = []
+    if result.returncode:
+        return []
+    rows = []
     for line in result.stdout.splitlines():
         parts = line.strip().split(maxsplit=1)
-        if len(parts) != 2:
-            continue
-        pid, args = int(parts[0]), parts[1]
-        if pid in current:
-            continue
-        if BENCH_FIXTURE_MARKER in args or args.startswith('cpu-guard --cores'):
-            found.append({'pid': pid, 'args': args})
-    return found
+        if len(parts) == 2:
+            rows.append((int(parts[0]), parts[1]))
+    return rows
+
+
+def leftover_processes():
+    current = {os.getpid(), os.getppid()}
+    return [
+        {'pid': pid, 'args': args}
+        for pid, args in process_table()
+        if pid not in current
+        and (BENCH_FIXTURE_MARKER in args or args.startswith('cpu-guard --cores'))
+    ]
 
 
 def preflight(args, selected):
