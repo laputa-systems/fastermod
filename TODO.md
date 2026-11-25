@@ -1,15 +1,6 @@
 Prefix: FAST
 Next: 14
 
-### FAST-12 · P3 · Strengthen benchmark preflight and comparison reporting
-
-- **Area:** fastermod · benchmarks
-- **Where:** tools/bench_tier.py
-- **Problem:** The tier driver checks local tools and free space but does not validate tool versions, host readiness, stale inputs, leftover processes or paired comparison budgets. The Edit tier demands cargo, rustc and cpu-guard although its self-test needs only Python, and the run summary has no per-workload timing validity. A Change run is completion evidence only.
-- **Recommendation:** Add selected-workload preflight and paired scenario reporting with explicit timing validity and exclusions, retaining manual-only Full.
-- **Fix with:** bench-pyramid
-- **Effort:** M
-
 ### FAST-13 · P3 · C ident edits skip macro-braced test files
 
 - **Area:** fastermod · C language coverage
