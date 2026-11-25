@@ -1,13 +1,5 @@
 Prefix: FAST
 Next: 13
-### FAST-9 · P3 · Saved plans apply conflicting entries for one file
-
-- **Area:** fastermod · saved plans
-- **Where:** src/plan.rs:307, src/plan.rs:525, src/plan.rs:1077
-- **Problem:** At fda1e8f, generate a one-file plan with --plan. Duplicate its only file entry and give the duplicate different replacement bytes and after text. --apply-plan exits 0, reports two files applied, and leaves only the second entry's bytes. The checked-in generator produced one entry. The demonstrated failure requires a modified saved plan.
-- **Recommendation:** Reject duplicate target entries before any write. Keep the accepted plan format and add a CLI fixture that checks the failure status and the input file's original bytes.
-- **Fix with:** durable-state
-- **Effort:** S
 
 ### FAST-10 · P3 · Short terminals underflow the preview height budget
 

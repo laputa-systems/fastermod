@@ -5,6 +5,7 @@
 //! serialization and stale-plan revalidation live here alongside the
 //! types and validation that are the contract they build on.
 
+use std::collections::HashSet;
 use std::path::Component;
 use std::path::PathBuf;
 
@@ -309,8 +310,12 @@ pub(crate) fn validate(plan: &EditPlan) -> Vec<String> {
     if plan.schema != PLAN_SCHEMA {
         problems.push(format!("unsupported plan schema {}", plan.schema));
     }
+    let mut seen_paths = HashSet::new();
     for file in &plan.files {
         let path_label = file.path.display().to_string();
+        if !seen_paths.insert(&file.path) {
+            problems.push(format!("duplicate target entry for {path_label}"));
+        }
         if file.path.as_os_str().is_empty()
             || file
                 .path
@@ -621,6 +626,17 @@ mod tests {
         let mut plan = plan_with("a.txt", "ab", vec![]);
         plan.schema = 99;
         assert!(validate(&plan).iter().any(|p| p.contains("schema")));
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_target_entries() {
+        let mut plan = plan_with("a.txt", "ab", vec![]);
+        let mut duplicate = plan.files[0].clone();
+        duplicate.after = "cd".to_string();
+        plan.files.push(duplicate);
+        assert!(validate(&plan)
+            .iter()
+            .any(|p| p.contains("duplicate target entry")));
     }
 
     #[test]

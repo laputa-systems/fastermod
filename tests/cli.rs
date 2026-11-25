@@ -205,6 +205,45 @@ fn saved_plan_revalidates_the_read_set_before_writing() {
 }
 
 #[test]
+fn apply_plan_rejects_duplicate_target_entries_before_writing() {
+    let dir = TestDir::with_prefix("fastermod-plan-duplicate-");
+    let source = dir.path().join("input.py");
+    let plan = dir.path().join("plan.json");
+    fs::write(&source, "foo = 1\n").unwrap();
+    let preview = fastermod_command()
+        .args(["--ident", "foo", "bar", "--plan"])
+        .arg(&plan)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+
+    let mut saved: serde_json::Value = serde_json::from_slice(&fs::read(&plan).unwrap()).unwrap();
+    let mut duplicate = saved["files"][0].clone();
+    duplicate["after"] = serde_json::json!("baz = 1\n");
+    saved["files"]
+        .as_array_mut()
+        .unwrap()
+        .push(duplicate);
+    fs::write(&plan, serde_json::to_vec(&saved).unwrap()).unwrap();
+
+    let bytes_before = fs::read(&source).unwrap();
+    let applied = fastermod_command()
+        .arg("--apply-plan")
+        .arg(&plan)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&applied.stderr);
+    assert_eq!(applied.status.code(), Some(4), "{stderr}");
+    assert!(stderr.contains("duplicate"), "{stderr}");
+    assert_eq!(fs::read(&source).unwrap(), bytes_before);
+}
+
+#[test]
 fn text_commands_report_matching_source_decode_failure() {
     let dir = TestDir::with_prefix("fastermod-source-error-");
     let source = dir.path().join("invalid.txt");
