@@ -377,7 +377,8 @@ impl Fastermod {
         let lines_to_print = match terminal::size() {
             Some((_w, h)) => h,
             None => 25,
-        } - 20;
+        }
+        .saturating_sub(20);
 
         let (diff_len, num_prefix_lines, num_suffix_lines) = diff_output_shape(&diff);
 

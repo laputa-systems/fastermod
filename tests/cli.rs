@@ -516,6 +516,83 @@ fn interactive_review_applies_each_reply_to_its_own_match() {
     assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "bar 1\nfoo 2\nfoo 3\n");
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn review_on_a_narrow_terminal_still_prints_the_changed_lines() {
+    use rustix::io::{FdFlags, fcntl_setfd};
+    use rustix::process::{ioctl_tiocsctty, setsid};
+    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+    use rustix::termios::{Winsize, tcsetwinsize};
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    let dir = create_test_files(&[("a.txt", "foo\n")]);
+    let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+    fcntl_setfd(&master, FdFlags::CLOEXEC).unwrap();
+    grantpt(&master).unwrap();
+    unlockpt(&master).unwrap();
+    let name = ptsname(&master, Vec::new()).unwrap();
+    let slave = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(std::ffi::OsStr::from_bytes(name.as_bytes()))
+        .unwrap();
+    tcsetwinsize(
+        &slave,
+        Winsize {
+            ws_row: 12,
+            ws_col: 80,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        },
+    )
+    .unwrap();
+    let mut master = File::from(master);
+    master.write_all(b"y\n").unwrap();
+
+    let controlling = slave.try_clone().unwrap();
+    let mut command = fastermod_command();
+    command
+        .args(["foo", "bar", dir.path().to_str().unwrap()])
+        .stdin(Stdio::from(slave.try_clone().unwrap()))
+        .stdout(Stdio::from(slave))
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(move || {
+            setsid()?;
+            ioctl_tiocsctty(&controlling)?;
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().unwrap();
+    let screen = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(read @ 1..) = master.read(&mut chunk) {
+            bytes.extend_from_slice(&chunk[..read]);
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait().unwrap();
+            panic!("narrow-terminal review did not finish");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = child.wait_with_output().unwrap();
+    let screen = screen.join().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(screen.contains("- foo"), "{screen}");
+    assert!(screen.contains("+ bar"), "{screen}");
+    assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "bar\n");
+}
+
 #[test]
 fn test_empty_contents() {
     let dir = create_test_files(&[("foo.txt", "foo")]);

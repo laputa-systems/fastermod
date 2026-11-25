@@ -1,15 +1,6 @@
 Prefix: FAST
 Next: 13
 
-### FAST-10 · P3 · Short terminals underflow the preview height budget
-
-- **Area:** fastermod · terminal review
-- **Where:** src/review.rs:377, src/terminal.rs:62
-- **Problem:** At 47771a5 in a debug build, a PTY reporting 12 rows and 80 columns aborts a one-line diff preview with attempt to subtract with overflow before the review prompt.
-- **Recommendation:** Saturate the terminal-height budget with a narrow-terminal test that still prints the changed lines.
-- **Fix with:** os-boundaries
-- **Effort:** S
-
 ### FAST-11 · P3 · Benchmark end-to-end codemod journeys and attribution
 
 - **Area:** fastermod · benchmarks
