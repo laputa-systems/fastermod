@@ -103,6 +103,7 @@ options! {
     ("plan", None, "<FILE>", "Preview and save a versioned plan"),
     ("print-changed-files", None, "", "Print changed paths"),
     ("fixed-strings", Some('F'), "", "Treat OLD as a literal string"),
+    ("literal", None, "", "Alias for --fixed-strings"),
     ("help", Some('h'), "", "Print help"),
     ("version", Some('V'), "", "Print version"),
 }
@@ -148,6 +149,28 @@ fn help_text() -> String {
 fn print_help_and_exit() {
     print!("{}", help_text());
     exit(0);
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let mut row: Vec<usize> = (0..=right.len()).collect();
+    for (i, a) in left.bytes().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, b) in right.bytes().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (row[j] + 1).min(above + 1).min(diagonal + usize::from(a != b));
+            diagonal = above;
+        }
+    }
+    row[right.len()]
+}
+
+fn closest_option(name: &str) -> Option<&'static str> {
+    OPTIONS
+        .iter()
+        .map(|option| option.long)
+        .min_by_key(|long| edit_distance(name, long))
+        .filter(|long| edit_distance(name, long) <= 3)
 }
 
 pub(crate) fn parse_args() -> Args {
@@ -201,7 +224,10 @@ fn parse_with(mut parser: lexopt::Parser) -> Result<Args> {
     while let Some(arg) = parser.next()? {
         let arg = match arg {
             Short(c) => OPTIONS.iter().find(|option| option.short == Some(c)).map_or(Short(c), |option| Long(option.long)),
-            Long(name) => OPTIONS.iter().find(|option| option.long == name).map_or(Long(name), |option| Long(option.long)),
+            Long(name) => {
+                let canonical = if name == "literal" { "fixed-strings" } else { name };
+                OPTIONS.iter().find(|option| option.long == canonical).map_or(Long(name), |option| Long(option.long))
+            }
             value => value,
         };
         match arg {
@@ -256,7 +282,13 @@ fn parse_with(mut parser: lexopt::Parser) -> Result<Args> {
             Long("print-changed-files") => print_changed_files = true,
             Long("fixed-strings") => fixed_strings = true,
             Value(value) => positionals.push(value.to_string_lossy().into_owned()),
-            _ => return Err(format!("Unrecognized argument: {:?}", arg).into()),
+            _ => {
+                let hint = match arg {
+                    Long(name) => closest_option(name).map(|long| format!(". Did you mean --{}?", long)).unwrap_or_default(),
+                    _ => String::new(),
+                };
+                return Err(format!("Unrecognized argument: {:?}{}", arg, hint).into());
+            }
         }
     }
     let mode = mode_slot.unwrap_or(Mode::Text);

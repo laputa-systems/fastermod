@@ -381,6 +381,37 @@ fn test_fixed_strings() {
 }
 
 #[test]
+fn literal_aliases_fixed_strings() {
+    let dir = create_test_files(&[("file1.txt", "foo+bar\nfoooobar")]);
+    let file_path = dir.path().join("file1.txt");
+    assert_fastermod(
+        [
+            "foo+bar",
+            "baz",
+            "--accept-all",
+            "--dir",
+            dir.path().to_str().unwrap(),
+            "--literal",
+        ],
+        None,
+        None,
+    );
+    assert_eq!(fs::read_to_string(file_path).unwrap(), "baz\nfoooobar");
+}
+
+#[test]
+fn unrecognized_flag_suggests_the_closest_option() {
+    let dir = create_test_files(&[("file1.txt", "foo\n")]);
+    let output = run_fastermod(
+        ["foo", "bar", "--fixed-strin", "--dir", dir.path().to_str().unwrap()],
+        None,
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--fixed-strings"), "{stderr}");
+}
+
+#[test]
 fn test_print_changed_files() {
     let dir = TestDir::with_prefix("fastermodtest.");
     let mut expected_changed_files = Vec::new();
