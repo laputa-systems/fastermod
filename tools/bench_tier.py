@@ -17,6 +17,10 @@ WORKLOADS = {
     'patch_single_1mb_file': 'patch',
     'run_fast_no_match_100_files': 'tree',
     'run_fast_match_100_files': 'tree',
+    'cli_text_apply': 'cli',
+    'cli_binding_rename': 'cli',
+    'cli_saved_plan': 'cli',
+    'cli_interactive_review': 'cli',
 }
 
 

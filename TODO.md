@@ -1,15 +1,6 @@
 Prefix: FAST
 Next: 14
 
-### FAST-11 · P3 · Benchmark end-to-end codemod journeys and attribution
-
-- **Area:** fastermod · benchmarks
-- **Where:** benches/bench.rs, tools/bench_tier.py
-- **Problem:** The seven generated Rust workloads measure internal search, replacement, diff, patch and tree walks, not complete CLI startup, binding-aware rename, interactive review or saved-plan journeys. Tree-walk allocation accounting excludes worker threads; no CPU or I/O attribution is captured. Their black-box calls do not assert complete output bytes.
-- **Recommendation:** Add representative CLI journeys with output and completed-work oracles, and separate process-tree CPU, allocation and I/O attribution from timed runs. Qualify comparisons under the host gate.
-- **Fix with:** bench-pyramid
-- **Effort:** M
-
 ### FAST-12 · P3 · Strengthen benchmark preflight and comparison reporting
 
 - **Area:** fastermod · benchmarks
