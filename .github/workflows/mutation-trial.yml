@@ -24,9 +24,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - uses: laputa-systems/buildlib/setup@1cd9d482a684e72c68ac6fea7f4ee3a3e9c4a161 # v0.3.1
         with:
-          python-version: '3.14'
+          tools: cpython
+          lock: .github/tools.lock.json
       - run: rustup show active-toolchain
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
